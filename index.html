@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>家計簿アプリ v29</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+    <style>
+        :root { 
+            --bg-color: #CFE2F3; /* 初期カラー（淡い青） */
+            --main-color: #CFE2F3; 
+            --text-on-main: #444; /* 背景が淡いので文字は常に濃い色 */
+            --error-color: #ff7675;
+            --con-color: #ffeaa7; --was-color: #fab1a0; --inv-color: #81ecec; --rem-color: #d1d8e0;
+        }
+        
+        body { 
+            font-family: -apple-system, sans-serif; margin: 0; padding: 0; 
+            background-color: var(--bg-color);
+            color: #333;
+            padding-top: env(safe-area-inset-top);
+            padding-bottom: calc(env(safe-area-inset-bottom) + 80px);
+            transition: background-color 0.4s ease;
+        }
+
+        .container { padding: 10px; margin-top: 10px; }
+        /* カードの透明度を上げて背景となじませる */
+        .card { background: rgba(255, 255, 255, 0.9); padding: 12px; border-radius: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); margin-bottom: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,0.5); }
+        
+        h2 { 
+            margin: -12px -12px 10px -12px; padding: 10px 12px; font-size: 0.9rem; 
+            background: var(--main-color); color: var(--text-on-main); 
+            display: flex; align-items: center; gap: 5px; font-weight: bold;
+             /* 淡い色同士の境界をはっきりさせる */
+            border-bottom: 1px solid rgba(0,0,0,0.05);
+        }
+        h3 { font-size: 0.85rem; margin-top: 0; color: #555; border-left: 4px solid var(--main-color); padding-left: 8px; }
+        
+        input, select { width: 100%; padding: 10px; margin-bottom: 6px; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; font-size: 16px !important; background: white; }
+        
+        .category-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin-bottom: 8px; }
+        .cat-btn { padding: 8px 0; border: 1px solid #eee; border-radius: 8px; background: #fff; font-size: 0.7rem !important; transition: 0.2s; border-bottom: 4px solid #ccc; }
+        .cat-btn.active { background: var(--main-color) !important; color: var(--text-on-main) !important; border-bottom-color: rgba(0,0,0,0.15) !important; }
+
+        #save-btn { padding: 12px; background: var(--main-color); color: var(--text-on-main); border: none; border-radius: 10px; font-weight: bold; font-size: 1rem; box-shadow: 0 2px 4px rgba(0,0,0,0.1); border: 1px solid rgba(0,0,0,0.05); }
+        
+        .tab-bar { 
+            position: fixed; bottom: 0; width: 100%; background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); display: flex; border-top: 1px solid #eee; z-index: 100; 
+            height: calc(60px + env(safe-area-inset-bottom)); padding-bottom: env(safe-area-inset-bottom);
+        }
+        .tab-btn { flex: 1; border: none; background: none; font-size: 0.75rem; color: #a4b0be; padding: 8px 5px; }
+        .tab-btn.active { color: var(--main-color); font-weight: bold; }
+        
+        .hidden { display: none; }
+        .history-item, .cat-manage-item { display: flex; align-items: center; background: white; padding: 10px; border-radius: 10px; margin-bottom: 5px; border: 1px solid #f0f0f0; font-size: 0.8rem; }
+        
+        /* パレットのレイアウト修正 */
+        .theme-selector { 
+            display: flex; 
+            flex-wrap: wrap; /* 折り返しを許可 */
+            gap: 12px; /* 間隔を少し広げる */
+            margin-top: 15px; 
+            justify-content: center; /* 中央揃え */
+        }
+        .theme-dot { 
+            width: 40px; height: 40px; /* 固定サイズ */
+            border-radius: 50%; 
+            border: 3px solid white; 
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1); 
+            cursor: pointer; 
+            transition: transform 0.2s, border-color 0.2s; 
+        }
+        .theme-dot.active { 
+            transform: scale(1.15); 
+            border-color: #999; /* 選択中をわかりやすく */
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container" id="tab-input">
+        <div class="card" id="summary-card">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                <button onclick="changeMonth(-1)" style="border:none; background:rgba(0,0,0,0.05); border-radius:50%; width:32px; height:32px;">◀</button>
+                <span id="display-month-label" style="font-weight:bold; font-size:1rem;"></span>
+                <button onclick="changeMonth(1)" style="border:none; background:rgba(0,0,0,0.05); border-radius:50%; width:32px; height:32px;">▶</button>
+                <input type="number" id="income-input" placeholder="収入" onchange="saveIncome()" onfocus="this.select()" style="width:100px; margin:0; padding:8px; font-size:0.9rem !important;">
+            </div>
+            <div id="status-text" style="font-size: 0.85rem; font-weight:bold; text-align:center; margin-bottom:10px;"></div>
+            <div id="budget-progress-area"></div>
+            <div style="max-width:150px; margin: 10px auto;"><canvas id="myChart"></canvas></div>
+        </div>
+
+        <div class="card" id="input-card">
+            <h2>✍️ 記録入力</h2>
+            <div style="display:flex; gap:5px; margin-top:5px;">
+                <input type="date" id="date-input" style="flex:1;">
+                <input type="number" id="amount-input" placeholder="金額" style="flex:1;">
+            </div>
+            <div class="category-grid" id="category-grid"></div>
+            <div style="display:flex; align-items:center; gap:15px; margin-top:5px;">
+                <label style="white-space:nowrap; display:flex; align-items:center; gap:6px; font-size:0.85rem; color:#555;"><input type="checkbox" id="fixed-check" style="width:20px;height:20px;margin:0;"> 固定費</label>
+                <button id="save-btn" onclick="saveRecord()" style="flex:1;">保存する</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="container hidden" id="tab-history">
+        <div class="card">
+            <h2 id="cat-editor-title">🏷️ 項目の追加</h2>
+            <div style="display:flex; gap:5px; margin-top:5px;">
+                <input type="text" id="new-cat-name" placeholder="項目名" style="flex:1;">
+                <select id="new-cat-type" style="width:90px;">
+                    <option value="consumption">消費</option><option value="waste">浪費</option><option value="investment">投資</option>
+                </select>
+                <button id="cat-add-btn" onclick="addCategory()" style="padding:0 15px; background:var(--main-color); color:var(--text-on-main); border:none; border-radius:8px; font-weight:bold;">+</button>
+            </div>
+        </div>
+        <div class="card"><h2>💰 予算設定</h2><div id="budget-settings-area"></div></div>
+        <div id="cat-manage-container" style="margin-bottom:20px;"><h3>🏷️ 項目管理 (長押しで移動)</h3><div id="cat-manage-list"></div></div>
+        <div id="history-list-area"></div>
+
+        <div class="card" style="margin-top:30px;">
+            <h2>🎨 テーマカラー設定</h2>
+            <div class="theme-selector" id="theme-selector"></div>
+        </div>
+    </div>
+
+    <div class="container hidden" id="tab-annual">
+        <div class="card"><h2>📈 年間推移</h2><div style="height: 300px;"><canvas id="annualChart"></canvas></div></div>
+    </div>
+
+    <div class="tab-bar">
+        <button class="tab-btn active" id="btn-input" onclick="switchTab('input')">🏠<br>ホーム</button>
+        <button class="tab-btn" id="btn-history" onclick="switchTab('history')">⚙️<br>設定</button>
+        <button class="tab-btn" id="btn-annual" onclick="switchTab('annual')">📈<br>推移</button>
+    </div>
+
+    <script>
+        const typeLabels = { 'consumption': '消費', 'waste': '浪費', 'investment': '投資' };
+        // より白に近い超淡いパステルカラー12色
+        const themes = [
+            "#CFE2F3", // 淡い青
+            "#FAD2CF", // 淡いピンク
+            "#D4F0F0", // 淡いミント
+            "#EAD1DC", // 淡い紫
+            "#FCE5CD", // 淡いオレンジ
+            "#FFF2CC", // 淡い黄色
+            "#D9EAD3", // 淡いライム
+            "#FEF8DD", // 超淡い黄色
+            "#EFEFEF", // 淡いグレー
+            "#F4CCCC", // 淡いローズ
+            "#E2F0D9", // 淡いグリーン
+            "#D9D9D9"  // ライトグレー
+        ];
+        
+        let data = JSON.parse(localStorage.getItem('kakeibo_v29')) || JSON.parse(localStorage.getItem('kakeibo_v28')) || { 
+            records: [], incomes: {}, fixedCosts: [], categories: [], budgets: {}, themeColor: "#CFE2F3"
+        };
+
+        if(data.categories.length === 0) {
+            data.categories = [{id:1,name:'食費',type:'consumption'},{id:2,name:'光熱費',type:'consumption'},{id:3,name:'遊び',type:'waste'},{id:4,name:'投資',type:'investment'}];
+        }
+
+        let currentViewingMonth = new Date(), selectedCategory = "", editId = null, catEditIndex = null, myChart = null, annualChart = null;
+
+        const getGroupColor = (type) => (type==='consumption'?'#ffeaa7':(type==='waste'?'#fab1a0':'#81ecec'));
+
+        window.onload = () => {
+            document.getElementById('date-input').value = new Date().toISOString().split('T')[0];
+            applyTheme(data.themeColor || "#CFE2F3");
+            initThemeSelector();
+            initSortable();
+            refreshUI();
+        };
+
+        function applyTheme(color) {
+            document.documentElement.style.setProperty('--bg-color', color);
+            document.documentElement.style.setProperty('--main-color', color);
+            // 背景が淡いので文字は常に濃いグレー
+            document.documentElement.style.setProperty('--text-on-main', "#444");
+            data.themeColor = color; saveToLocal();
+            document.querySelectorAll('.theme-dot').forEach(dot => dot.classList.toggle('active', dot.getAttribute('data-color') === color));
+            if (!document.getElementById('tab-annual').classList.contains('hidden')) updateAnnualSummary();
+        }
+
+        function initThemeSelector() {
+            const container = document.getElementById('theme-selector');
+            themes.forEach(color => {
+                const dot = document.createElement('div');
+                dot.className = 'theme-dot';
+                dot.style.backgroundColor = color;
+                dot.setAttribute('data-color', color);
+                dot.onclick = () => applyTheme(color);
+                container.appendChild(dot);
+            });
+        }
+
+        function refreshUI() { initCategoryButtons(); renderCategoryManager(); renderBudgetSettings(); updateSummary(); }
+
+        function initSortable() {
+            Sortable.create(document.getElementById('cat-manage-list'), {
+                animation: 150, delay: 500, delayOnTouchOnly: true, ghostClass: 'sortable-ghost',
+                onEnd: function(evt) {
+                    const newOrder = [];
+                    document.getElementById('cat-manage-list').querySelectorAll('.cat-manage-item').forEach(item => {
+                        newOrder.push(data.categories[parseInt(item.getAttribute('data-index'))]);
+                    });
+                    data.categories = newOrder; saveToLocal(); refreshUI();
+                }
+            });
+        }
+
+        function initCategoryButtons() {
+            const grid = document.getElementById('category-grid'); grid.innerHTML = "";
+            data.categories.forEach(cat => {
+                const btn = document.createElement('button');
+                btn.className = `cat-btn ${selectedCategory === cat.name ? 'active' : ''}`;
+                btn.innerText = cat.name; btn.style.borderBottomColor = getGroupColor(cat.type);
+                btn.onclick = () => { selectedCategory = cat.name; initCategoryButtons(); };
+                grid.appendChild(btn);
+            });
+        }
+
+        function renderCategoryManager() {
+            const list = document.getElementById('cat-manage-list'); list.innerHTML = "";
+            data.categories.forEach((cat, index) => {
+                const item = document.createElement('div'); item.className = 'cat-manage-item';
+                item.style.borderLeft = `5px solid ${getGroupColor(cat.type)}`; item.setAttribute('data-index', index);
+                item.innerHTML = `<div style="color:#ccc;margin-right:10px;font-size:1.2rem;">☰</div><div style="flex:1;"><b>${cat.name}</b></div><button onclick="startEditCat(${index})" style="border:none;background:#eee;padding:5px 10px;border-radius:6px;margin-right:5px;">編集</button><button onclick="deleteCategory(${index})" style="border:none;background:#fab1a0;padding:5px 10px;border-radius:6px;">消す</button>`;
+                list.appendChild(item);
+            });
+        }
+
+        function addCategory() {
+            const name = document.getElementById('new-cat-name').value;
+            const type = document.getElementById('new-cat-type').value;
+            if (!name) return;
+            if (catEditIndex !== null) {
+                const oldName = data.categories[catEditIndex].name;
+                data.records.forEach(r => { if(r.category === oldName) r.category = name; });
+                data.fixedCosts.forEach(r => { if(r.category === oldName) r.category = name; });
+                if(data.budgets[oldName]) { data.budgets[name] = data.budgets[oldName]; delete data.budgets[oldName]; }
+                data.categories[catEditIndex].name = name; data.categories[catEditIndex].type = type;
+            } else { data.categories.push({ id: Date.now(), name, type }); }
+            saveToLocal(); resetCatForm(); refreshUI();
+        }
+
+        function startEditCat(index) {
+            catEditIndex = index; const cat = data.categories[index];
+            document.getElementById('new-cat-name').value = cat.name; document.getElementById('new-cat-type').value = cat.type;
+            document.getElementById('cat-editor-title').innerText = "✏️ 項目の編集"; document.getElementById('cat-add-btn').innerText = "更新";
+            window.scrollTo(0,0);
+        }
+
+        function resetCatForm() { catEditIndex = null; document.getElementById('new-cat-name').value = ""; document.getElementById('cat-editor-title').innerText = "🏷️ 項目の追加"; document.getElementById('cat-add-btn').innerText = "+"; }
+
+        function deleteCategory(index) { if(confirm('削除しますか？')) { data.categories.splice(index, 1); saveToLocal(); refreshUI(); } }
+
+        function saveRecord() {
+            const amount = parseInt(document.getElementById('amount-input').value);
+            if (!selectedCategory || !amount) return;
+            if (editId) { data.records = data.records.filter(r => r.id !== editId); data.fixedCosts = data.fixedCosts.filter(r => r.id !== editId); }
+            const newEntry = { id: Date.now(), date: document.getElementById('date-input').value, category: selectedCategory, amount };
+            if (document.getElementById('fixed-check').checked) data.fixedCosts.push(newEntry); else data.records.push(newEntry);
+            saveToLocal(); cancelEdit(); updateSummary();
+        }
+
+        function updateSummary() {
+            const monthStr = getMonthStr(); document.getElementById('display-month-label').innerText = monthStr.replace('-', '年') + '月';
+            const income = data.incomes[monthStr] || 0; document.getElementById('income-input').value = income || "";
+            let sums = {}; data.categories.forEach(c => sums[c.name] = 0); let totalExp = 0;
+            [...data.fixedCosts, ...data.records.filter(r => r.date.startsWith(monthStr))].forEach(r => {
+                if (sums[r.category] !== undefined) { sums[r.category] += r.amount; totalExp += r.amount; }
+            });
+            const progressArea = document.getElementById('budget-progress-area'); progressArea.innerHTML = "";
+            data.categories.forEach(cat => {
+                const budget = data.budgets[cat.name] || 0;
+                if (budget > 0) {
+                    const spent = sums[cat.name] || 0; const percent = Math.min((spent / budget) * 100, 100);
+                    progressArea.innerHTML += `<div style="display:flex;justify-content:space-between;font-size:0.65rem;"><span>${cat.name}</span><span>${spent.toLocaleString()}/${budget.toLocaleString()}</span></div><div style="background:rgba(0,0,0,0.05);border-radius:5px;height:5px;margin-bottom:6px;overflow:hidden;"><div style="height:100%;transition:width 0.3s;width:${percent}%;background:${getGroupColor(cat.type)};"></div></div>`;
+                }
+            });
+            document.getElementById('status-text').innerHTML = `支出:${totalExp.toLocaleString()} / 収支差:${(income - totalExp).toLocaleString()}`;
+            drawChart(income, sums, totalExp); renderHistoryArea(monthStr);
+        }
+
+        function drawChart(income, sums, totalExp) {
+            const ctx = document.getElementById('myChart').getContext('2d'); if (myChart) myChart.destroy();
+            const labels = data.categories.map(c => c.name); const chartData = data.categories.map(c => sums[c.name]); const chartColors = data.categories.map(c => getGroupColor(c.type));
+            if (income > totalExp) { labels.push('残金'); chartData.push(income - totalExp); chartColors.push('#fff'); }
+            myChart = new Chart(ctx, { type: 'pie', data: { labels, datasets: [{ data: chartData, backgroundColor: chartColors, borderWidth: 0 }] }, options: { plugins: { legend: { display: false } } } });
+        }
+
+        function updateAnnualSummary() {
+            const year = currentViewingMonth.getFullYear(); document.getElementById('annual-title').innerText = `📈 ${year}年の推移`;
+            const labels = ["1月","2月","3月","4月","5月","6月","7月","8月","9月","10月","11月","12月"];
+            const monthlyValues = labels.map((_, i) => {
+                const mStr = `${year}-${(i+1).toString().padStart(2,'0')}`, mInc = data.incomes[mStr] || 0;
+                let mTotalExp = 0, mInv = 0;
+                [...data.fixedCosts, ...data.records.filter(r => r.date.startsWith(mStr))].forEach(r => {
+                    const c = data.categories.find(cat => cat.name === r.category);
+                    if (c) { mTotalExp += r.amount; if (c.type === 'investment') mInv += r.amount; }
+                });
+                return mInc > 0 ? (mInc - mTotalExp) + mInv : null;
+            });
+            const validValues = monthlyValues.filter(v => v !== null), absMax = validValues.length > 0 ? Math.max(...validValues.map(Math.abs)) : 10000, limit = Math.ceil(absMax / 10000) * 10000 * 1.2;
+            if (annualChart) annualChart.destroy();
+            annualChart = new Chart(document.getElementById('annualChart'), {
+                type: 'line', data: { labels, datasets: [{ data: monthlyValues, borderColor: data.themeColor, backgroundColor: 'rgba(255,255,255,0.2)', fill: true, tension: 0.3, pointBackgroundColor: monthlyValues.map(v => v >= 0 ? '#10ac84' : '#ee5253'), spanGaps: true }] },
+                options: { maintainAspectRatio: false, scales: { y: { min: -limit, max: limit, ticks: { callback: v => v.toLocaleString() + '円' }, grid: { color: (ctx) => ctx.tick.value === 0 ? '#000' : 'rgba(0,0,0,0.05)', lineWidth: (ctx) => ctx.tick.value === 0 ? 2 : 1 } } }, plugins: { legend: { display: false } } }
+            });
+        }
+
+        function renderBudgetSettings() {
+            const a = document.getElementById('budget-settings-area'); a.innerHTML = "";
+            data.categories.forEach(c => {
+                a.innerHTML += `<div style="display:flex;justify-content:space-between;align-items:center;font-size:0.75rem;margin-bottom:5px;"><span>${c.name}</span><input type="number" style="width:100px;margin:0;padding:5px;" value="${data.budgets[c.name]||0}" onchange="data.budgets['${c.name}']=parseInt(this.value);saveToLocal();updateSummary();"></div>`;
+            });
+        }
+
+        function renderHistoryArea(m) {
+            const area = document.getElementById('history-list-area'); area.innerHTML = "<h3>📝 最近の履歴</h3>";
+            const allItems = [...data.records.filter(r => r.date.startsWith(m)).map(r => ({...r, type:'normal'})), ...data.fixedCosts.map(r => ({...r, type:'fixed'}))];
+            allItems.sort((a,b) => b.date.localeCompare(a.date)).forEach(r => {
+                const cat = data.categories.find(c => c.name === r.category); if(!cat) return;
+                area.innerHTML += `<div class="history-item" style="border-left:5px solid ${getGroupColor(cat.type)};"><div style="flex:1;margin-left:8px;"><b>${r.date.split('-')[2]}日 ${r.category}</b><br>${r.amount.toLocaleString()}円 ${r.type==='fixed'?'[固定]':''}</div><button onclick="editRecord(${r.id},'${r.type}')" style="border:none;background:#eee;padding:5px 10px;border-radius:6px;margin-right:5px;">編集</button><button onclick="deleteRecord(${r.id},'${r.type}')" style="border:none;background:#fab1a0;padding:5px 10px;border-radius:6px;">消す</button></div>`;
+            });
+        }
+
+        function editRecord(id, type) { 
+            const item = (type==='fixed' ? data.fixedCosts : data.records).find(r=>r.id===id); if(!item) return;
+            editId=id; selectedCategory=item.category; document.getElementById('date-input').value=item.date; document.getElementById('amount-input').value=item.amount; document.getElementById('fixed-check').checked = (type === 'fixed');
+            document.getElementById('save-btn').innerText="更新"; switchTab('input'); window.scrollTo(0,0); 
+        }
+
+        function cancelEdit() { editId=null; document.getElementById('save-btn').innerText="保存する"; document.getElementById('amount-input').value=""; }
+        function deleteRecord(id, type) { if(confirm('消去しますか？')) { if(type==='fixed') data.fixedCosts = data.fixedCosts.filter(r=>r.id!==id); else data.records = data.records.filter(r=>r.id!==id); saveToLocal(); updateSummary(); } }
+        function saveIncome() { data.incomes[getMonthStr()] = parseInt(document.getElementById('income-input').value)||0; saveToLocal(); updateSummary(); }
+        function getMonthStr() { return `${currentViewingMonth.getFullYear()}-${(currentViewingMonth.getMonth()+1).toString().padStart(2, '0')}`; }
+        function saveToLocal() { localStorage.setItem('kakeibo_v29', JSON.stringify(data)); }
+        function switchTab(t) { 
+            ['input','annual','history'].forEach(tab => document.getElementById('tab-'+tab)?.classList.toggle('hidden', tab!==t)); 
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.id==='btn-'+t)); 
+            if(t==='annual') updateAnnualSummary(); updateSummary();
+        }
+        function changeMonth(d) { currentViewingMonth.setMonth(currentViewingMonth.getMonth()+d); updateSummary(); if(!document.getElementById('tab-annual').classList.contains('hidden')) updateAnnualSummary(); }
+    </script>
+</body>
+</html>
