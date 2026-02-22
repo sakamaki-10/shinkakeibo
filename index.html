@@ -1,18 +1,18 @@
-？<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <title>家計簿アプリ v29</title>
+    <title>家計簿アプリ v30</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
     <style>
         :root { 
-            --bg-color: #CFE2F3; /* 初期カラー（淡い青） */
+            --bg-color: #CFE2F3; 
             --main-color: #CFE2F3; 
-            --text-on-main: #444; /* 背景が淡いので文字は常に濃い色 */
+            --text-on-main: #444;
             --error-color: #ff7675;
             --con-color: #ffeaa7; --was-color: #fab1a0; --inv-color: #81ecec; --rem-color: #d1d8e0;
         }
@@ -27,14 +27,12 @@
         }
 
         .container { padding: 10px; margin-top: 10px; }
-        /* カードの透明度を上げて背景となじませる */
         .card { background: rgba(255, 255, 255, 0.9); padding: 12px; border-radius: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); margin-bottom: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,0.5); }
         
         h2 { 
             margin: -12px -12px 10px -12px; padding: 10px 12px; font-size: 0.9rem; 
             background: var(--main-color); color: var(--text-on-main); 
             display: flex; align-items: center; gap: 5px; font-weight: bold;
-             /* 淡い色同士の境界をはっきりさせる */
             border-bottom: 1px solid rgba(0,0,0,0.05);
         }
         h3 { font-size: 0.85rem; margin-top: 0; color: #555; border-left: 4px solid var(--main-color); padding-left: 8px; }
@@ -57,26 +55,14 @@
         .hidden { display: none; }
         .history-item, .cat-manage-item { display: flex; align-items: center; background: white; padding: 10px; border-radius: 10px; margin-bottom: 5px; border: 1px solid #f0f0f0; font-size: 0.8rem; }
         
-        /* パレットのレイアウト修正 */
-        .theme-selector { 
-            display: flex; 
-            flex-wrap: wrap; /* 折り返しを許可 */
-            gap: 12px; /* 間隔を少し広げる */
-            margin-top: 15px; 
-            justify-content: center; /* 中央揃え */
-        }
-        .theme-dot { 
-            width: 40px; height: 40px; /* 固定サイズ */
-            border-radius: 50%; 
-            border: 3px solid white; 
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1); 
-            cursor: pointer; 
-            transition: transform 0.2s, border-color 0.2s; 
-        }
-        .theme-dot.active { 
-            transform: scale(1.15); 
-            border-color: #999; /* 選択中をわかりやすく */
-        }
+        .cat-manage-item { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+        .sortable-ghost { opacity: 0.4; background-color: #d1d8e0 !important; }
+        .badge { font-size: 0.6rem; padding: 2px 5px; border-radius: 4px; margin-left: 5px; color: #666; background: #eee; }
+        .drag-handle { color: #ccc; margin-right: 10px; font-size: 1.2rem; cursor: grab; }
+
+        .theme-selector { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 15px; justify-content: center; }
+        .theme-dot { width: 40px; height: 40px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.1); cursor: pointer; transition: transform 0.2s, border-color 0.2s; }
+        .theme-dot.active { transform: scale(1.15); border-color: #999; }
     </style>
 </head>
 <body>
@@ -141,32 +127,28 @@
 
     <script>
         const typeLabels = { 'consumption': '消費', 'waste': '浪費', 'investment': '投資' };
-        // より白に近い超淡いパステルカラー12色
-        const themes = [
-            "#CFE2F3", // 淡い青
-            "#FAD2CF", // 淡いピンク
-            "#D4F0F0", // 淡いミント
-            "#EAD1DC", // 淡い紫
-            "#FCE5CD", // 淡いオレンジ
-            "#FFF2CC", // 淡い黄色
-            "#D9EAD3", // 淡いライム
-            "#FEF8DD", // 超淡い黄色
-            "#EFEFEF", // 淡いグレー
-            "#F4CCCC", // 淡いローズ
-            "#E2F0D9", // 淡いグリーン
-            "#D9D9D9"  // ライトグレー
-        ];
+        const themes = ["#CFE2F3", "#FAD2CF", "#D4F0F0", "#EAD1DC", "#FCE5CD", "#FFF2CC", "#D9EAD3", "#FEF8DD", "#EFEFEF", "#F4CCCC", "#E2F0D9", "#D9D9D9"];
         
-        let data = JSON.parse(localStorage.getItem('kakeibo_v29')) || JSON.parse(localStorage.getItem('kakeibo_v28')) || { 
+        // データの初期化。もしlocalStorageにデータがなければ、元々の8つの項目をセットする
+        let data = JSON.parse(localStorage.getItem('kakeibo_v30')) || JSON.parse(localStorage.getItem('kakeibo_v29')) || { 
             records: [], incomes: {}, fixedCosts: [], categories: [], budgets: {}, themeColor: "#CFE2F3"
         };
 
+        // 元々の8項目を設定
         if(data.categories.length === 0) {
-            data.categories = [{id:1,name:'食費',type:'consumption'},{id:2,name:'光熱費',type:'consumption'},{id:3,name:'遊び',type:'waste'},{id:4,name:'投資',type:'investment'}];
+            data.categories = [
+                {id: 1, name: '食費', type: 'consumption'},
+                {id: 2, name: '光熱費', type: 'consumption'},
+                {id: 3, name: '家賃', type: 'consumption'},
+                {id: 4, name: '友達遊び', type: 'waste'},
+                {id: 5, name: '趣味', type: 'waste'},
+                {id: 6, name: '小説', type: 'waste'},
+                {id: 7, name: '投資', type: 'investment'},
+                {id: 8, name: '学び代', type: 'investment'}
+            ];
         }
 
         let currentViewingMonth = new Date(), selectedCategory = "", editId = null, catEditIndex = null, myChart = null, annualChart = null;
-
         const getGroupColor = (type) => (type==='consumption'?'#ffeaa7':(type==='waste'?'#fab1a0':'#81ecec'));
 
         window.onload = () => {
@@ -180,7 +162,6 @@
         function applyTheme(color) {
             document.documentElement.style.setProperty('--bg-color', color);
             document.documentElement.style.setProperty('--main-color', color);
-            // 背景が淡いので文字は常に濃いグレー
             document.documentElement.style.setProperty('--text-on-main', "#444");
             data.themeColor = color; saveToLocal();
             document.querySelectorAll('.theme-dot').forEach(dot => dot.classList.toggle('active', dot.getAttribute('data-color') === color));
@@ -204,7 +185,7 @@
         function initSortable() {
             Sortable.create(document.getElementById('cat-manage-list'), {
                 animation: 150, delay: 500, delayOnTouchOnly: true, ghostClass: 'sortable-ghost',
-                onEnd: function(evt) {
+                onEnd: function() {
                     const newOrder = [];
                     document.getElementById('cat-manage-list').querySelectorAll('.cat-manage-item').forEach(item => {
                         newOrder.push(data.categories[parseInt(item.getAttribute('data-index'))]);
@@ -230,7 +211,7 @@
             data.categories.forEach((cat, index) => {
                 const item = document.createElement('div'); item.className = 'cat-manage-item';
                 item.style.borderLeft = `5px solid ${getGroupColor(cat.type)}`; item.setAttribute('data-index', index);
-                item.innerHTML = `<div style="color:#ccc;margin-right:10px;font-size:1.2rem;">☰</div><div style="flex:1;"><b>${cat.name}</b></div><button onclick="startEditCat(${index})" style="border:none;background:#eee;padding:5px 10px;border-radius:6px;margin-right:5px;">編集</button><button onclick="deleteCategory(${index})" style="border:none;background:#fab1a0;padding:5px 10px;border-radius:6px;">消す</button>`;
+                item.innerHTML = `<div class="drag-handle" style="color:#ccc;margin-right:10px;font-size:1.2rem;">☰</div><div style="flex:1;"><b>${cat.name}</b></div><button onclick="startEditCat(${index})" style="border:none;background:#eee;padding:5px 10px;border-radius:6px;margin-right:5px;">編集</button><button onclick="deleteCategory(${index})" style="border:none;background:#fab1a0;padding:5px 10px;border-radius:6px;">消す</button>`;
                 list.appendChild(item);
             });
         }
@@ -341,7 +322,7 @@
         function deleteRecord(id, type) { if(confirm('消去しますか？')) { if(type==='fixed') data.fixedCosts = data.fixedCosts.filter(r=>r.id!==id); else data.records = data.records.filter(r=>r.id!==id); saveToLocal(); updateSummary(); } }
         function saveIncome() { data.incomes[getMonthStr()] = parseInt(document.getElementById('income-input').value)||0; saveToLocal(); updateSummary(); }
         function getMonthStr() { return `${currentViewingMonth.getFullYear()}-${(currentViewingMonth.getMonth()+1).toString().padStart(2, '0')}`; }
-        function saveToLocal() { localStorage.setItem('kakeibo_v29', JSON.stringify(data)); }
+        function saveToLocal() { localStorage.setItem('kakeibo_v30', JSON.stringify(data)); }
         function switchTab(t) { 
             ['input','annual','history'].forEach(tab => document.getElementById('tab-'+tab)?.classList.toggle('hidden', tab!==t)); 
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.id==='btn-'+t)); 
