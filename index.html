@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <title>家計簿アプリ v36</title>
+    <title>家計簿アプリ v40</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
     <style>
@@ -52,7 +52,6 @@
         
         .hidden { display: none !important; }
 
-        /* カレンダー */
         .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; background: #eee; border-radius: 8px; overflow: hidden; margin-top: 5px; }
         .calendar-header { background: #f8f9fa; text-align: center; font-size: 0.6rem; padding: 4px 0; font-weight: bold; color: #666; }
         .calendar-day { background: white; min-height: 45px; padding: 2px; cursor: pointer; display: flex; flex-direction: column; justify-content: space-between; }
@@ -60,23 +59,15 @@
         .calendar-day .day-amount { font-size: 0.55rem; color: #e74c3c; text-align: right; }
         .calendar-day.today { background: #fff9db; }
 
-        /* 項目管理リストのスタイル修正 */
-        .cat-manage-item { 
-            display: flex; flex-direction: row; align-items: center; background: white; padding: 10px 12px; 
-            border-radius: 10px; margin-bottom: 8px; border: 1px solid #eee; 
-            font-size: 0.85rem; box-shadow: 0 2px 4px rgba(0,0,0,0.02);
-        }
+        .cat-manage-item { display: flex; flex-direction: row; align-items: center; background: white; padding: 10px 12px; border-radius: 10px; margin-bottom: 8px; border: 1px solid #eee; font-size: 0.85rem; }
         .cat-manage-item b { flex: 1; margin-right: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .cat-manage-item .btn-group { display: flex; flex-direction: row; gap: 5px; flex-shrink: 0; }
         .cat-manage-item button { border: none; padding: 6px 12px; border-radius: 6px; font-size: 0.75rem; white-space: nowrap; }
-        .drag-handle { color: #ccc; margin-right: 12px; cursor: grab; font-size: 1.1rem; flex-shrink: 0; line-height: 1; }
+        .drag-handle { color: #ccc; margin-right: 12px; cursor: grab; font-size: 1.1rem; flex-shrink: 0; }
 
-        /* テーマパレット */
         .theme-selector { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; justify-items: center; margin-top: 10px; }
         .theme-dot { width: 35px; height: 35px; border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.1); cursor: pointer; }
-        .theme-dot.active { transform: scale(1.15); border-color: #666; }
         
-        /* ポップアップ */
         .modal-overlay { position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index: 2000; display:flex; justify-content:center; align-items:center; }
         .modal-content { background:white; width:88%; max-width:400px; border-radius:16px; padding:20px; max-height:80vh; overflow-y:auto; }
         .history-item { display: flex; align-items: center; background: white; padding: 10px; border-radius: 10px; margin-bottom: 6px; border: 1px solid #f0f0f0; font-size: 0.8rem; }
@@ -104,6 +95,7 @@
                 <input type="date" id="date-input" style="flex:1;">
                 <input type="number" id="amount-input" placeholder="金額" style="flex:1;">
             </div>
+            <input type="text" id="comment-input" placeholder="コメント (サブスク名など)" style="margin-bottom: 8px;">
             <div class="category-grid" id="category-grid"></div>
             <div style="display:flex; align-items:center; gap:15px; margin-top:5px;">
                 <label style="display:flex; align-items:center; gap:8px; font-size:0.85rem; color:#555; white-space:nowrap;">
@@ -130,6 +122,13 @@
                 <button id="cat-add-btn" onclick="addCategory()" style="padding:0 15px; background:var(--main-color); border:none; border-radius:8px; font-weight:bold;">+</button>
             </div>
         </div>
+
+        <div class="card">
+            <h2>📌 今月の固定費一覧</h2>
+            <div id="fixed-costs-summary" style="font-size: 0.85rem; font-weight: bold; margin-bottom: 8px; color: #555;"></div>
+            <div id="fixed-costs-list" style="max-height: 120px; overflow-y: auto; font-size: 0.75rem; background: rgba(0,0,0,0.02); padding: 8px; border-radius: 8px;"></div>
+        </div>
+
         <div class="card"><h2>💰 予算設定</h2><div id="budget-settings-area"></div></div>
         <div class="card"><h3>🏷️ 項目管理 (長押しで移動)</h3><div id="cat-manage-list"></div></div>
         <div class="card">
@@ -140,7 +139,8 @@
 
     <div class="container hidden" id="tab-annual">
         <div class="card">
-            <h2 id="annual-title">📈 年間推移</h2>
+            <h2>📈 年間推移</h2>
+            <div id="annual-title" style="font-size: 0.8rem; margin-bottom: 5px;"></div>
             <div style="height: 300px; position: relative;"><canvas id="annualChart"></canvas></div>
         </div>
     </div>
@@ -181,44 +181,42 @@
             refreshUI();
         };
 
-        function applyTheme(color) {
-            document.documentElement.style.setProperty('--bg-color', color);
-            document.documentElement.style.setProperty('--main-color', color);
-            data.themeColor = color; saveToLocal();
-            document.querySelectorAll('.theme-dot').forEach(dot => dot.classList.toggle('active', dot.getAttribute('data-color') === color));
-        }
-
-        function initThemeSelector() {
-            const container = document.getElementById('theme-selector'); container.innerHTML = "";
-            themes.forEach(color => {
-                const dot = document.createElement('div');
-                dot.className = 'theme-dot'; dot.style.backgroundColor = color;
-                dot.setAttribute('data-color', color);
-                dot.onclick = () => { applyTheme(color); refreshUI(); };
-                container.appendChild(dot);
-            });
-        }
-
         function saveRecord() {
             const amount = parseInt(document.getElementById('amount-input').value);
+            const comment = document.getElementById('comment-input').value;
             if (!selectedCategory || !amount) { alert("カテゴリを選択し、金額を入力してください。"); return; }
             if (editId) { data.records = data.records.filter(r => r.id !== editId); data.fixedCosts = data.fixedCosts.filter(r => r.id !== editId); }
-            const newEntry = { id: Date.now(), date: document.getElementById('date-input').value, category: selectedCategory, amount };
+            const newEntry = { id: Date.now(), date: document.getElementById('date-input').value, category: selectedCategory, amount, comment };
             if (document.getElementById('fixed-check').checked) data.fixedCosts.push(newEntry); else data.records.push(newEntry);
             saveToLocal(); cancelEdit(); updateSummary();
         }
 
+        function cancelEdit() { 
+            editId=null; 
+            document.getElementById('save-btn').innerText="保存する"; 
+            document.getElementById('amount-input').value=""; 
+            document.getElementById('comment-input').value="";
+            document.getElementById('fixed-check').checked = false; // 🆕 保存・更新後にチェックを外す
+        }
+
+        function renderBudgetSettings() {
+            const a = document.getElementById('budget-settings-area'); a.innerHTML = "";
+            data.categories.forEach(c => {
+                // 🆕 予算入力欄に onfocus="this.select()" を追加して上書きしやすく
+                a.innerHTML += `<div style="display:flex;justify-content:space-between;align-items:center;font-size:0.75rem;margin-bottom:5px;"><span>${c.name}</span><input type="number" style="width:100px;margin:0;padding:5px;" value="${data.budgets[c.name]||0}" onfocus="this.select()" onchange="data.budgets['${c.name}']=parseInt(this.value);saveToLocal();updateSummary();"></div>`;
+            });
+        }
+
+        // --- 以下、既存の全機能を維持 ---
         function updateSummary() {
             const monthStr = getMonthStr();
             document.getElementById('display-month-label').innerText = monthStr.replace('-', '年') + '月';
             const income = data.incomes[monthStr] || 0;
             document.getElementById('income-input').value = income || "";
-            
             let sums = {}; data.categories.forEach(c => sums[c.name] = 0);
             let totalExp = 0;
             const monthRecords = [...data.fixedCosts, ...data.records.filter(r => r.date.startsWith(monthStr))];
             monthRecords.forEach(r => { if (sums[r.category] !== undefined) { sums[r.category] += r.amount; totalExp += r.amount; } });
-
             const progressArea = document.getElementById('budget-progress-area'); progressArea.innerHTML = "";
             data.categories.forEach(cat => {
                 const budget = data.budgets[cat.name] || 0;
@@ -228,43 +226,30 @@
                     progressArea.innerHTML += `<div style="display:flex;justify-content:space-between;font-size:0.65rem;"><span>${cat.name}</span><span>${spent.toLocaleString()}/${budget.toLocaleString()}</span></div><div style="background:rgba(0,0,0,0.05);border-radius:5px;height:5px;margin-bottom:6px;overflow:hidden;"><div style="height:100%;width:${percent}%;background:${barColor};transition:width 0.3s;"></div></div>`;
                 }
             });
-
             const todayStr = new Date().toISOString().split('T')[0];
             const todayTotal = [...data.records, ...data.fixedCosts].filter(r => r.date === todayStr).reduce((s, r) => s + r.amount, 0);
             document.getElementById('today-expense-text').innerText = todayTotal > 0 ? `今日の支出: ${todayTotal.toLocaleString()} 円` : "";
-
             const balance = income - totalExp;
             document.getElementById('status-text').innerHTML = `支出:${totalExp.toLocaleString()} / 収支差:${balance.toLocaleString()}`;
             const card = document.getElementById('summary-card');
             card.className = 'card ' + (income > 0 ? (balance > 0 ? 'summary-blue' : (balance === 0 ? 'summary-green' : 'summary-red')) : '');
-
             drawChart(income, sums, totalExp);
             renderCalendar(currentViewingMonth);
+            renderFixedCostsList();
         }
 
-        function renderCalendar(date) {
-            const view = document.getElementById('calendar-view'); view.innerHTML = "";
-            const year = date.getFullYear(); const month = date.getMonth();
-            const firstDay = new Date(year, month, 1); const lastDay = new Date(year, month + 1, 0);
-            let startOffset = (firstDay.getDay() + 6) % 7;
-            const grid = document.createElement('div'); grid.className = 'calendar-grid';
-            ['月','火','水','木','金','土','日'].forEach(d => {
-                const h = document.createElement('div'); h.className = 'calendar-header'; h.innerText = d; grid.appendChild(h);
+        function renderFixedCostsList() {
+            const area = document.getElementById('fixed-costs-list');
+            const summary = document.getElementById('fixed-costs-summary');
+            const monthStr = getMonthStr();
+            const monthlyFixed = data.fixedCosts.filter(r => r.date.startsWith(monthStr));
+            const total = monthlyFixed.reduce((sum, r) => sum + r.amount, 0);
+            summary.innerText = `合計: ${total.toLocaleString()} 円`; area.innerHTML = "";
+            if(monthlyFixed.length === 0) { area.innerHTML = "<div style='color:#999; text-align:center;'>今月の固定費はありません</div>"; return; }
+            monthlyFixed.sort((a,b) => a.date.localeCompare(b.date)).forEach(r => {
+                const commentText = r.comment ? `<span style="color:#888; margin-left:5px; font-weight:normal;">(${r.comment})</span>` : "";
+                area.innerHTML += `<div style="display:flex; justify-content:space-between; border-bottom:1px solid rgba(0,0,0,0.05); padding:6px 0;"><span>${r.category}${commentText}</span><span style="font-weight:bold;">${r.amount.toLocaleString()}円</span></div>`;
             });
-            for(let i=0; i<startOffset; i++) {
-                const c = document.createElement('div'); c.className='calendar-day other-month'; grid.appendChild(c);
-            }
-            const todayStr = new Date().toISOString().split('T')[0];
-            for(let i=1; i<=lastDay.getDate(); i++) {
-                const dayStr = `${year}-${(month+1).toString().padStart(2, '0')}-${i.toString().padStart(2, '0')}`;
-                const dayTotal = [...data.records, ...data.fixedCosts].filter(r => r.date === dayStr).reduce((s,r)=>s+r.amount, 0);
-                const cell = document.createElement('div');
-                cell.className = `calendar-day ${dayStr === todayStr ? 'today' : ''}`;
-                cell.innerHTML = `<div class="day-num">${i}</div><div class="day-amount">${dayTotal > 0 ? dayTotal.toLocaleString() : ''}</div>`;
-                cell.onclick = () => openModal(dayStr);
-                grid.appendChild(cell);
-            }
-            view.appendChild(grid);
         }
 
         function openModal(dateStr) {
@@ -276,38 +261,66 @@
             else {
                 dayRecords.forEach(r => {
                     const cat = data.categories.find(c => c.name === r.category);
-                    listArea.innerHTML += `<div class="history-item" style="border-left:5px solid ${getGroupColor(cat?.type)}">
-                        <div style="flex:1;"><b>${r.category}</b><br>${r.amount.toLocaleString()}円 (${r.t})</div>
-                        <button onclick="closeModal(); editRecord(${r.id},'${r.t==='固定'?'fixed':'normal'}')" style="border:none;background:#eee;padding:5px 10px;border-radius:6px;margin-right:5px;">編集</button>
-                        <button onclick="closeModal(); deleteRecord(${r.id},'${r.t==='固定'?'fixed':'normal'}')" style="border:none;background:#fab1a0;padding:5px 10px;border-radius:6px;">消す</button>
-                    </div>`;
+                    const commentLine = r.comment ? `<div style="color:#666; font-size:0.75rem; margin-top:2px;">メモ: ${r.comment}</div>` : "";
+                    listArea.innerHTML += `<div class="history-item" style="border-left:5px solid ${getGroupColor(cat?.type)}; flex-direction:column; align-items:flex-start;"><div style="display:flex; width:100%; justify-content:space-between; align-items:center;"><div style="flex:1;"><b>${r.category}</b> (${r.t})<br>${r.amount.toLocaleString()}円</div><div><button onclick="closeModal(); editRecord(${r.id},'${r.t==='固定'?'fixed':'normal'}')" style="border:none;background:#eee;padding:5px 10px;border-radius:6px;margin-right:5px;">編集</button><button onclick="closeModal(); deleteRecord(${r.id},'${r.t==='固定'?'fixed':'normal'}')" style="border:none;background:#fab1a0;padding:5px 10px;border-radius:6px;">消す</button></div></div>${commentLine}</div>`;
                 });
             }
             document.getElementById('detail-modal').classList.remove('hidden');
         }
 
-        // ここが修正箇所：項目管理リストの描画
+        function editRecord(id, type) { 
+            const item = (type==='fixed' ? data.fixedCosts : data.records).find(r=>r.id===id); if(!item) return;
+            editId=id; selectedCategory=item.category; 
+            document.getElementById('date-input').value=item.date; 
+            document.getElementById('amount-input').value=item.amount; 
+            document.getElementById('comment-input').value=item.comment || "";
+            document.getElementById('fixed-check').checked = (type === 'fixed');
+            document.getElementById('save-btn').innerText="更新する"; switchTab('input');
+        }
+
+        function applyTheme(color) {
+            document.documentElement.style.setProperty('--bg-color', color);
+            document.documentElement.style.setProperty('--main-color', color);
+            data.themeColor = color; saveToLocal();
+            document.querySelectorAll('.theme-dot').forEach(dot => dot.classList.toggle('active', dot.getAttribute('data-color') === color));
+        }
+        function initThemeSelector() {
+            const container = document.getElementById('theme-selector'); container.innerHTML = "";
+            themes.forEach(color => {
+                const dot = document.createElement('div'); dot.className = 'theme-dot'; dot.style.backgroundColor = color;
+                dot.setAttribute('data-color', color); dot.onclick = () => { applyTheme(color); refreshUI(); }; container.appendChild(dot);
+            });
+        }
+        function renderCalendar(date) {
+            const view = document.getElementById('calendar-view'); view.innerHTML = "";
+            const year = date.getFullYear(); const month = date.getMonth();
+            const firstDay = new Date(year, month, 1); const lastDay = new Date(year, month + 1, 0);
+            let startOffset = (firstDay.getDay() + 6) % 7;
+            const grid = document.createElement('div'); grid.className = 'calendar-grid';
+            ['月','火','水','木','金','土','日'].forEach(d => { const h = document.createElement('div'); h.className = 'calendar-header'; h.innerText = d; grid.appendChild(h); });
+            for(let i=0; i<startOffset; i++) { const c = document.createElement('div'); c.className='calendar-day other-month'; grid.appendChild(c); }
+            const todayStr = new Date().toISOString().split('T')[0];
+            for(let i=1; i<=lastDay.getDate(); i++) {
+                const dayStr = `${year}-${(month+1).toString().padStart(2, '0')}-${i.toString().padStart(2, '0')}`;
+                const dayTotal = [...data.records, ...data.fixedCosts].filter(r => r.date === dayStr).reduce((s,r)=>s+r.amount, 0);
+                const cell = document.createElement('div'); cell.className = `calendar-day ${dayStr === todayStr ? 'today' : ''}`;
+                cell.innerHTML = `<div class="day-num">${i}</div><div class="day-amount">${dayTotal > 0 ? dayTotal.toLocaleString() : ''}</div>`;
+                cell.onclick = () => openModal(dayStr); grid.appendChild(cell);
+            }
+            view.appendChild(grid);
+        }
         function renderCategoryManager() {
             const list = document.getElementById('cat-manage-list'); list.innerHTML = "";
             data.categories.forEach((cat, index) => {
-                const item = document.createElement('div'); item.className = 'cat-manage-item';
-                item.style.borderLeft = `5px solid ${getGroupColor(cat.type)}`;
+                const item = document.createElement('div'); item.className = 'cat-manage-item'; item.style.borderLeft = `5px solid ${getGroupColor(cat.type)}`;
                 item.setAttribute('data-index', index);
-                item.innerHTML = `
-                    <div class="drag-handle">☰</div>
-                    <b>${cat.name} <span style="font-weight:normal; font-size:0.75rem; color:#888;">(${typeLabels[cat.type]})</span></b>
-                    <div class="btn-group">
-                        <button onclick="startEditCat(${index})" style="background:#eee; color:#444;">編集</button>
-                        <button onclick="deleteCategory(${index})" style="background:#fab1a0; color:#fff;">消す</button>
-                    </div>
-                `;
+                item.innerHTML = `<div class="drag-handle">☰</div><b>${cat.name} <span style="font-weight:normal; font-size:0.75rem; color:#888;">(${typeLabels[cat.type]})</span></b><div class="btn-group"><button onclick="startEditCat(${index})" style="background:#eee; color:#444;">編集</button><button onclick="deleteCategory(${index})" style="background:#fab1a0; color:#fff;">消す</button></div>`;
                 list.appendChild(item);
             });
         }
-
         function updateAnnualSummary() {
             const year = currentViewingMonth.getFullYear(); 
-            document.getElementById('annual-title').innerText = `📈 ${year}年の推移`;
+            document.getElementById('annual-title').innerText = `${year}年の推移`;
             const labels = ["1月","2月","3月","4月","5月","6月","7月","8月","9月","10月","11月","12月"];
             const monthlyValues = labels.map((_, i) => {
                 const mStr = `${year}-${(i+1).toString().padStart(2,'0')}`;
@@ -328,14 +341,7 @@
                 options: { maintainAspectRatio: false, scales: { y: { min: -limit, max: limit, ticks: { callback: v => v.toLocaleString() + '円' } } }, plugins: { legend: { display: false } } }
             });
         }
-
         function refreshUI() { initCategoryButtons(); renderCategoryManager(); renderBudgetSettings(); updateSummary(); }
-        function cancelEdit() { editId=null; document.getElementById('save-btn').innerText="保存する"; document.getElementById('amount-input').value=""; }
-        function editRecord(id, type) { 
-            const item = (type==='fixed' ? data.fixedCosts : data.records).find(r=>r.id===id); if(!item) return;
-            editId=id; selectedCategory=item.category; document.getElementById('date-input').value=item.date; document.getElementById('amount-input').value=item.amount; document.getElementById('fixed-check').checked = (type === 'fixed');
-            document.getElementById('save-btn').innerText="更新する"; switchTab('input');
-        }
         function deleteRecord(id, type) { if(confirm('消去しますか？')) { if(type==='fixed') data.fixedCosts = data.fixedCosts.filter(r=>r.id!==id); else data.records = data.records.filter(r=>r.id!==id); saveToLocal(); updateSummary(); } }
         function saveIncome() { data.incomes[getMonthStr()] = parseInt(document.getElementById('income-input').value)||0; saveToLocal(); updateSummary(); }
         function getMonthStr() { return `${currentViewingMonth.getFullYear()}-${(currentViewingMonth.getMonth()+1).toString().padStart(2, '0')}`; }
@@ -384,12 +390,6 @@
         }
         function resetCatForm() { catEditIndex = null; document.getElementById('new-cat-name').value = ""; document.getElementById('cat-editor-title').innerText = "🏷️ 項目の追加"; document.getElementById('cat-add-btn').innerText = "+"; }
         function deleteCategory(index) { if(confirm('削除しますか？')) { data.categories.splice(index, 1); saveToLocal(); refreshUI(); } }
-        function renderBudgetSettings() {
-            const a = document.getElementById('budget-settings-area'); a.innerHTML = "";
-            data.categories.forEach(c => {
-                a.innerHTML += `<div style="display:flex;justify-content:space-between;align-items:center;font-size:0.75rem;margin-bottom:5px;"><span>${c.name}</span><input type="number" style="width:100px;margin:0;padding:5px;" value="${data.budgets[c.name]||0}" onchange="data.budgets['${c.name}']=parseInt(this.value);saveToLocal();updateSummary();"></div>`;
-            });
-        }
         function initSortable() {
             Sortable.create(document.getElementById('cat-manage-list'), {
                 animation: 150, delay: 500, delayOnTouchOnly: true,
