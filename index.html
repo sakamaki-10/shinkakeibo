@@ -1,4 +1,4 @@
- <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
@@ -163,9 +163,10 @@
         const typeLabels = { 'consumption': '消費', 'waste': '浪費', 'investment': '投資' };
         const themes = ["#CFE2F3", "#FAD2CF", "#D4F0F0", "#EAD1DC", "#FCE5CD", "#FFF2CC", "#D9EAD3", "#E2F0D9", "#F4CCCC", "#D9D9D9", "#EFEFEF", "#D0E1F9"];
         
-        const STORAGE_KEY = 'kakeibo_v40';
+        // 以前の保存場所に戻しました
+        const STORAGE_KEY = 'kakeibo_v31';
         
-        // 初回起動時の9項目
+        // 初回起動用のマスターデータ
         const defaultCategories = [
             { id: 1, name: "食費", type: "consumption" },
             { id: 2, name: "光熱費", type: "consumption" },
