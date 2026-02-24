@@ -5,12 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <title>家計簿アプリ v41.1</title>
+    <title>家計簿アプリ v41.6</title>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
 
     <style>
+        /* --- デザインの基本設定 --- */
         :root { 
             --bg-color: #CFE2F3; 
             --main-color: #CFE2F3; 
@@ -33,7 +34,10 @@
             -webkit-tap-highlight-color: transparent;
         }
 
-        .container { padding: 10px; margin-top: 10px; }
+        .container { 
+            padding: 10px; 
+            margin-top: 10px; 
+        }
 
         .card { 
             background: rgba(255, 255, 255, 0.9); 
@@ -58,6 +62,7 @@
             font-weight: bold;
         }
         
+        /* 収支の状態に応じた背景色 */
         .summary-blue { background-color: #e3f2fd !important; }
         .summary-green { background-color: #e8f5e9 !important; }
         .summary-red { background-color: #ffebee !important; }
@@ -173,6 +178,7 @@
         .calendar-day.today { background: #fff9db; }
         .calendar-day.other-month { background: #f9f9f9; color: #ccc; }
 
+        /* リスト項目の共通デザイン (項目管理・固定費一覧) */
         .cat-manage-item { 
             display: flex; 
             flex-direction: row; 
@@ -245,6 +251,14 @@
             margin-left: 5px;
             font-weight: bold;
         }
+
+        label.modal-label {
+            display: block;
+            font-size: 0.7rem;
+            color: #888;
+            margin-bottom: 2px;
+            margin-top: 8px;
+        }
     </style>
 </head>
 <body>
@@ -300,9 +314,9 @@
         </div>
 
         <div class="card">
-            <h2>📌 今月の固定費一覧</h2>
+            <h2>📌 固定費マスター（毎月自動反映）</h2>
             <div id="fixed-costs-summary" style="font-size: 0.85rem; font-weight: bold; margin-bottom: 8px; color: #555;"></div>
-            <div id="fixed-costs-list" style="max-height: 250px; overflow-y: auto; font-size: 0.75rem; background: rgba(0,0,0,0.02); padding: 8px; border-radius: 8px;"></div>
+            <div id="fixed-costs-list" style="max-height: 350px; overflow-y: auto;"></div>
         </div>
 
         <div class="card">
@@ -337,6 +351,35 @@
         </div>
     </div>
 
+    <div id="universal-edit-modal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <h3 id="edit-modal-title" style="margin-top:0;">✏️ 記録の修正</h3>
+            
+            <label class="modal-label">日付</label>
+            <input type="date" id="u-edit-date">
+            
+            <label class="modal-label">金額</label>
+            <input type="number" id="u-edit-amount" placeholder="金額">
+            
+            <label class="modal-label">メモ</label>
+            <input type="text" id="u-edit-comment" placeholder="コメント">
+            
+            <label class="modal-label">カテゴリ</label>
+            <select id="u-edit-category"></select>
+
+            <div style="margin-top: 10px;">
+                <label style="display:flex; align-items:center; gap:8px; font-size:0.85rem; color:#555;">
+                    <input type="checkbox" id="u-edit-fixed" style="width:18px; height:18px;"> 固定費マスターに登録
+                </label>
+            </div>
+
+            <div style="display:flex; gap:10px; margin-top:20px;">
+                <button onclick="closeUniversalModal()" style="flex:1; padding:12px; border-radius:8px; border:none; background:#eee; font-weight:bold;">キャンセル</button>
+                <button onclick="saveUniversalEdit()" style="flex:1; padding:12px; border-radius:8px; border:none; background:var(--main-color); font-weight:bold;">更新する</button>
+            </div>
+        </div>
+    </div>
+
     <div class="tab-bar">
         <button class="tab-btn active" id="btn-input" onclick="switchTab('input')">🏠<br>ホーム</button>
         <button class="tab-btn" id="btn-history" onclick="switchTab('history')">⚙️<br>設定</button>
@@ -350,7 +393,7 @@
         const typeLabels = { 'consumption': '消費', 'waste': '浪費', 'investment': '投資' };
         const themes = ["#CFE2F3", "#FAD2CF", "#D4F0F0", "#EAD1DC", "#FCE5CD", "#FFF2CC", "#D9EAD3", "#E2F0D9", "#F4CCCC", "#D9D9D9", "#EFEFEF", "#D0E1F9"];
         
-        // 過去の鍵をそのまま維持
+        // 過去データ参照キー
         const STORAGE_KEY = 'kakeibo_v31';
         
         // 初期9項目
@@ -367,25 +410,24 @@
         ];
 
         let data = JSON.parse(localStorage.getItem(STORAGE_KEY)) || { 
-            records: [], 
-            incomes: {}, 
-            fixedCosts: [], 
-            categories: defaultCategories, 
-            budgets: {}, 
-            themeColor: "#CFE2F3"
+            records: [], incomes: {}, fixedCosts: [], categories: defaultCategories, budgets: {}, themeColor: "#CFE2F3"
         };
 
         let currentViewingMonth = new Date();
         let selectedCategory = "";
         let editId = null;
-        let catEditIndex = null;
         let myChart = null;
         let annualChart = null;
+        
+        // 編集ポップアップ用
+        let targetEditId = null;
+        let targetEditType = ""; // "normal" or "fixed"
 
         const getGroupColor = (type) => {
             if (type === 'consumption') return '#ffeaa7';
             if (type === 'waste') return '#fab1a0';
-            return '#81ecec';
+            if (type === 'investment') return '#81ecec';
+            return '#eee';
         };
 
         /**
@@ -407,7 +449,7 @@
         };
 
         /**
-         * 3. データの保存と編集
+         * 3. データの新規保存
          */
         function saveRecord() {
             const amount = parseInt(document.getElementById('amount-input').value);
@@ -419,7 +461,7 @@
                 return; 
             }
             
-            // 編集中の場合は上書き（古い方を消す）
+            // 通常の入力エリアでの「編集」モードの場合
             if (editId) {
                 data.records = data.records.filter(r => r.id !== editId);
                 data.fixedCosts = data.fixedCosts.filter(r => r.id !== editId);
@@ -473,6 +515,7 @@
             data.categories.forEach(c => sums[c.name] = 0);
             
             let totalExp = 0;
+            // 固定費マスターはすべての月に反映
             const monthRecords = [...data.fixedCosts, ...data.records.filter(r => r.date.startsWith(monthStr))];
             
             monthRecords.forEach(r => { 
@@ -483,7 +526,7 @@
                 } 
             });
 
-            // 予算進捗バー
+            // 予算進捗
             const progressArea = document.getElementById('budget-progress-area'); 
             progressArea.innerHTML = "";
             data.categories.forEach(cat => {
@@ -503,12 +546,12 @@
                 }
             });
 
-            // 選択日の合計
-            const todayStr = document.getElementById('date-input').value;
+            // 今日の支出合算
+            const realToday = new Date().toLocaleDateString('sv-SE');
             const todayTotal = [...data.records, ...data.fixedCosts]
-                .filter(r => r.date === todayStr)
+                .filter(r => r.date === realToday)
                 .reduce((s, r) => s + Number(r.amount), 0);
-            document.getElementById('today-expense-text').innerText = todayTotal > 0 ? `選択日の支出: ${todayTotal.toLocaleString()} 円` : "";
+            document.getElementById('today-expense-text').innerText = `今日の支出: ${todayTotal.toLocaleString()} 円`;
             
             const balance = income - totalExp;
             document.getElementById('status-text').innerHTML = `支出:${totalExp.toLocaleString()} / 収支差:${balance.toLocaleString()}`;
@@ -528,238 +571,150 @@
         }
 
         /**
-         * 5. カレンダー描画
+         * 5. 固定費リストの描画
+         */
+        function renderFixedCostsList() {
+            const area = document.getElementById('fixed-costs-list');
+            const summary = document.getElementById('fixed-costs-summary');
+            const total = data.fixedCosts.reduce((sum, r) => sum + Number(r.amount), 0);
+            
+            summary.innerText = `固定費合計: ${total.toLocaleString()} 円 / 月`;
+            area.innerHTML = "";
+
+            if(data.fixedCosts.length === 0) { 
+                area.innerHTML = "<div style='color:#999; text-align:center; padding:20px;'>固定費は登録されていません</div>"; 
+                return; 
+            }
+
+            data.fixedCosts.forEach(r => {
+                const cat = data.categories.find(c => c.name === r.category);
+                const item = document.createElement('div');
+                item.className = 'cat-manage-item';
+                item.style.borderLeft = `5px solid ${getGroupColor(cat?.type)}`;
+
+                item.innerHTML = `
+                    <div style="flex:1; overflow:hidden;">
+                        <span style="font-weight:bold; font-size:0.85rem;">${r.category}</span>
+                        <div style="color:#666; font-size:0.75rem;">${Number(r.amount).toLocaleString()}円${r.comment ? ` / ${r.comment}` : ''}</div>
+                    </div>
+                    <div style="display:flex;">
+                        <button onclick="openUniversalEditModal(${r.id}, 'fixed')" class="list-btn-small" style="background:#eee; color:#444;">編集</button>
+                        <button onclick="deleteRecord(${r.id}, 'fixed')" class="list-btn-small" style="background:#fab1a0; color:#fff;">消す</button>
+                    </div>`;
+                area.appendChild(item);
+            });
+        }
+
+        /**
+         * 6. 🆕 万能編集ポップアップ (カレンダーからも固定費からもこれを使う)
+         */
+        function openUniversalEditModal(id, type) {
+            targetEditId = id;
+            targetEditType = type;
+            
+            const collection = (type === 'fixed' ? data.fixedCosts : data.records);
+            const item = collection.find(r => r.id === id);
+            if(!item) return;
+
+            document.getElementById('u-edit-date').value = item.date;
+            document.getElementById('u-edit-amount').value = item.amount;
+            document.getElementById('u-edit-comment').value = item.comment || "";
+            document.getElementById('u-edit-fixed').checked = (type === 'fixed');
+            
+            const sel = document.getElementById('u-edit-category');
+            sel.innerHTML = "";
+            data.categories.forEach(c => {
+                const opt = document.createElement('option');
+                opt.value = c.name; opt.innerText = c.name;
+                if(c.name === item.category) opt.selected = true;
+                sel.appendChild(opt);
+            });
+
+            document.getElementById('edit-modal-title').innerText = (type === 'fixed' ? "✏️ 固定費の修正" : "✏️ 記録の修正");
+            document.getElementById('universal-edit-modal').classList.remove('hidden');
+        }
+
+        function closeUniversalModal() { 
+            document.getElementById('universal-edit-modal').classList.add('hidden'); 
+        }
+
+        function saveUniversalEdit() {
+            const date = document.getElementById('u-edit-date').value;
+            const amount = parseInt(document.getElementById('u-edit-amount').value);
+            const comment = document.getElementById('u-edit-comment').value;
+            const category = document.getElementById('u-edit-category').value;
+            const isFixed = document.getElementById('u-edit-fixed').checked;
+
+            if (isNaN(amount)) return;
+
+            // 以前の場所から削除
+            data.records = data.records.filter(r => r.id !== targetEditId);
+            data.fixedCosts = data.fixedCosts.filter(r => r.id !== targetEditId);
+
+            // 新しい設定で作成
+            const updatedEntry = { 
+                id: targetEditId, // IDは維持
+                date: date, 
+                category: category, 
+                amount: amount, 
+                comment: comment 
+            };
+
+            if (isFixed) {
+                data.fixedCosts.push(updatedEntry);
+            } else {
+                data.records.push(updatedEntry);
+            }
+
+            saveToLocal();
+            closeUniversalModal();
+            closeModal(); // カレンダー詳細モーダルも閉じる
+            refreshUI();
+        }
+
+        /**
+         * 7. カレンダーと詳細表示
          */
         function renderCalendar(date) {
-            const view = document.getElementById('calendar-view'); 
-            view.innerHTML = "";
-            const year = date.getFullYear(); 
-            const month = date.getMonth();
-            const firstDay = new Date(year, month, 1); 
-            const lastDay = new Date(year, month + 1, 0);
+            const view = document.getElementById('calendar-view'); view.innerHTML = "";
+            const year = date.getFullYear(); const month = date.getMonth();
+            const firstDay = new Date(year, month, 1); const lastDay = new Date(year, month + 1, 0);
             
             let startOffset = (firstDay.getDay() + 6) % 7;
             const grid = document.createElement('div'); 
             grid.className = 'calendar-grid';
             
-            const days = ['月','火','水','木','金','土','日'];
-            days.forEach(d => { 
-                const h = document.createElement('div'); 
-                h.className = 'calendar-header'; 
-                h.innerText = d; 
-                grid.appendChild(h); 
+            ['月','火','水','木','金','土','日'].forEach(d => { 
+                const h = document.createElement('div'); h.className = 'calendar-header'; h.innerText = d; grid.appendChild(h); 
             });
 
             for(let i=0; i<startOffset; i++) {
                 const c = document.createElement('div');
-                c.className='calendar-day other-month';
-                grid.appendChild(c);
+                c.className='calendar-day other-month'; grid.appendChild(c);
             }
 
             const todayStr = new Date().toLocaleDateString('sv-SE');
             for(let i=1; i<=lastDay.getDate(); i++) {
                 const dayStr = `${year}-${(month+1).toString().padStart(2, '0')}-${i.toString().padStart(2, '0')}`;
-                const dayTotal = [...data.records, ...data.fixedCosts]
-                    .filter(r => r.date === dayStr)
-                    .reduce((s, r) => s + Number(r.amount), 0);
+                const dayTotal = [...data.records, ...data.fixedCosts].filter(r => r.date === dayStr).reduce((s, r) => s + Number(r.amount), 0);
                 
                 const cell = document.createElement('div');
                 cell.className = `calendar-day ${dayStr === todayStr ? 'today' : ''}`;
-                cell.innerHTML = `
-                    <div class="day-num">${i}</div>
-                    <div class="day-amount">${dayTotal > 0 ? dayTotal.toLocaleString() : ''}</div>
-                `;
+                cell.innerHTML = `<div class="day-num">${i}</div><div class="day-amount">${dayTotal > 0 ? dayTotal.toLocaleString() : ''}</div>`;
                 cell.onclick = () => openModal(dayStr);
                 grid.appendChild(cell);
             }
             view.appendChild(grid);
         }
 
-        /**
-         * 6. 固定費の管理（編集・削除）
-         */
-        function renderFixedCostsList() {
-            const area = document.getElementById('fixed-costs-list');
-            const summary = document.getElementById('fixed-costs-summary');
-            const monthStr = getMonthStr();
-            const monthlyFixed = data.fixedCosts.filter(r => r.date.startsWith(monthStr));
-            const total = monthlyFixed.reduce((sum, r) => sum + Number(r.amount), 0);
-            
-            summary.innerText = `今月の合計: ${total.toLocaleString()} 円`;
-            area.innerHTML = "";
-
-            if(monthlyFixed.length === 0) { 
-                area.innerHTML = "<div style='color:#999; text-align:center; padding:10px;'>今月の固定費はありません</div>"; 
-                return; 
-            }
-
-            monthlyFixed.sort((a,b) => a.date.localeCompare(b.date)).forEach(r => {
-                const item = document.createElement('div');
-                item.style.display = 'flex';
-                item.style.justifyContent = 'space-between';
-                item.style.alignItems = 'center';
-                item.style.padding = '10px 0';
-                item.style.borderBottom = '1px solid rgba(0,0,0,0.05)';
-
-                item.innerHTML = `
-                    <div style="flex:1;">
-                        <span style="font-weight:bold; font-size:0.85rem;">${r.category}</span>
-                        <div style="color:#666; font-size:0.7rem;">
-                            ${r.date.replace(/-/g, '/')} ${r.comment ? ` / ${r.comment}` : ''}
-                        </div>
-                    </div>
-                    <div style="display:flex; align-items:center;">
-                        <span style="font-weight:bold; margin-right:8px; font-size:0.85rem;">${Number(r.amount).toLocaleString()}円</span>
-                        <button onclick="editRecord(${r.id}, 'fixed')" class="list-btn-small" style="background:#eee; color:#444;">編集</button>
-                        <button onclick="deleteRecord(${r.id}, 'fixed')" class="list-btn-small" style="background:#fab1a0; color:#fff;">消す</button>
-                    </div>
-                `;
-                area.appendChild(item);
-            });
-        }
-
-        /**
-         * 7. カテゴリ・予算・システム関数
-         */
-        function initCategoryButtons() {
-            const grid = document.getElementById('category-grid'); 
-            grid.innerHTML = "";
-            data.categories.forEach(cat => {
-                const btn = document.createElement('button');
-                btn.className = `cat-btn ${selectedCategory === cat.name ? 'active' : ''}`;
-                btn.innerText = cat.name;
-                btn.style.borderBottomColor = getGroupColor(cat.type);
-                btn.onclick = () => { selectedCategory = cat.name; initCategoryButtons(); };
-                grid.appendChild(btn);
-            });
-        }
-
-        function renderCategoryManager() {
-            const list = document.getElementById('cat-manage-list'); 
-            list.innerHTML = "";
-            data.categories.forEach((cat, index) => {
-                const item = document.createElement('div'); 
-                item.className = 'cat-manage-item'; 
-                item.style.borderLeft = `5px solid ${getGroupColor(cat.type)}`;
-                item.setAttribute('data-index', index);
-                item.innerHTML = `
-                    <div class="drag-handle">☰</div>
-                    <b>${cat.name} <span style="font-weight:normal; font-size:0.75rem; color:#888;">(${typeLabels[cat.type]})</span></b>
-                    <div style="display:flex; gap:5px;">
-                        <button onclick="startEditCat(${index})" style="border:none;background:#eee;padding:5px 10px;border-radius:6px;font-size:0.7rem;">編集</button>
-                        <button onclick="deleteCategory(${index})" style="border:none;background:#fab1a0;color:white;padding:5px 10px;border-radius:6px;font-size:0.7rem;">消す</button>
-                    </div>`;
-                list.appendChild(item);
-            });
-        }
-
-        function editRecord(id, type) { 
-            const collection = (type === 'fixed' ? data.fixedCosts : data.records);
-            const item = collection.find(r => r.id === id); 
-            if(!item) return;
-
-            editId = id; 
-            selectedCategory = item.category; 
-            document.getElementById('date-input').value = item.date; 
-            document.getElementById('amount-input').value = item.amount; 
-            document.getElementById('comment-input').value = item.comment || "";
-            document.getElementById('fixed-check').checked = (type === 'fixed');
-            document.getElementById('save-btn').innerText = "更新する"; 
-            
-            switchTab('input');
-        }
-
-        function deleteRecord(id, type) {
-            if(confirm('この記録を完全に消去しますか？')) {
-                if(type === 'fixed') data.fixedCosts = data.fixedCosts.filter(r => r.id !== id);
-                else data.records = data.records.filter(r => r.id !== id);
-                saveToLocal();
-                refreshUI();
-            }
-        }
-
-        function renderBudgetSettings() {
-            const a = document.getElementById('budget-settings-area'); a.innerHTML = "";
-            data.categories.forEach(c => {
-                a.innerHTML += `
-                    <div style="display:flex;justify-content:space-between;align-items:center;font-size:0.75rem;margin-bottom:5px;">
-                        <span>${c.name}</span>
-                        <input type="number" style="width:100px;margin:0;padding:5px;" value="${data.budgets[c.name]||0}" onfocus="this.select()" onchange="data.budgets['${c.name}']=parseInt(this.value);saveToLocal();updateSummary();">
-                    </div>`;
-            });
-        }
-
-        function drawChart(income, sums, totalExp) {
-            const ctx = document.getElementById('myChart').getContext('2d'); 
-            if (myChart) myChart.destroy();
-            
-            const labels = data.categories.map(c => c.name); 
-            const chartData = data.categories.map(c => sums[c.name]); 
-            const chartColors = data.categories.map(c => getGroupColor(c.type));
-            
-            if (income > totalExp) { 
-                labels.push('残金'); 
-                chartData.push(income - totalExp); 
-                chartColors.push('#ffffff'); 
-            }
-            
-            myChart = new Chart(ctx, { 
-                type: 'pie', 
-                data: { labels, datasets: [{ data: chartData, backgroundColor: chartColors, borderWidth: 1, borderColor: '#eee' }] }, 
-                options: { plugins: { legend: { display: false } }, animation: { duration: 500 } } 
-            });
-        }
-
-        function updateAnnualSummary() {
-            const year = currentViewingMonth.getFullYear();
-            document.getElementById('annual-title').innerText = `${year}年の推移`;
-            const labels = ["1月","2月","3月","4月","5月","6月","7月","8月","9月","10月","11月","12月"];
-            
-            const monthlyValues = labels.map((_, i) => {
-                const mStr = `${year}-${(i+1).toString().padStart(2,'0')}`;
-                const mInc = data.incomes[mStr] || 0;
-                let mTotalExp = 0, mInv = 0;
-                [...data.fixedCosts, ...data.records.filter(r => r.date.startsWith(mStr))].forEach(r => {
-                    const c = data.categories.find(cat => cat.name === r.category);
-                    if (c) { 
-                        mTotalExp += Number(r.amount); 
-                        if (c.type === 'investment') mInv += Number(r.amount); 
-                    }
-                });
-                return mInc > 0 ? (mInc - mTotalExp) + mInv : null;
-            });
-
-            const ctx = document.getElementById('annualChart').getContext('2d'); 
-            if (annualChart) annualChart.destroy();
-            
-            annualChart = new Chart(ctx, {
-                type: 'line', 
-                data: { labels, datasets: [{ data: monthlyValues, borderColor: '#555', backgroundColor: 'rgba(0,0,0,0.05)', fill: true, tension: 0.3, spanGaps: true }] },
-                options: { maintainAspectRatio: false, plugins: { legend: { display: false } } }
-            });
-        }
-
-        // 基本操作
-        function saveToLocal() { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }
-        function getMonthStr() { return `${currentViewingMonth.getFullYear()}-${(currentViewingMonth.getMonth()+1).toString().padStart(2, '0')}`; }
-        function saveIncome() { data.incomes[getMonthStr()] = parseInt(document.getElementById('income-input').value)||0; saveToLocal(); updateSummary(); }
-        function changeMonth(d) { currentViewingMonth.setMonth(currentViewingMonth.getMonth()+d); refreshUI(); }
-        function switchTab(t) { 
-            ['input','annual','history'].forEach(tab => document.getElementById('tab-'+tab).classList.toggle('hidden', tab!==t)); 
-            document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.id==='btn-'+t)); 
-            if(t==='annual') setTimeout(updateAnnualSummary, 10);
-            refreshUI();
-        }
-        function applyTheme(color) { document.documentElement.style.setProperty('--bg-color', color); document.documentElement.style.setProperty('--main-color', color); data.themeColor = color; saveToLocal(); }
-        function closeModal() { document.getElementById('detail-modal').classList.add('hidden'); }
-
         function openModal(dateStr) {
             const listArea = document.getElementById('modal-history-list');
             document.getElementById('modal-date-title').innerText = dateStr.replace(/-/g, '/') + " の詳細";
             listArea.innerHTML = "";
+            
             const dayRecords = [
-                ...data.records.map(r=>({...r,t:'通常'})), 
-                ...data.fixedCosts.map(r=>({...r,t:'固定'}))
+                ...data.records.map(r=>({...r,t:'通常', typeKey:'normal'})), 
+                ...data.fixedCosts.map(r=>({...r,t:'固定', typeKey:'fixed'}))
             ].filter(r => r.date === dateStr);
             
             if(dayRecords.length === 0) {
@@ -770,17 +725,66 @@
                     listArea.innerHTML += `
                         <div class="history-item" style="border-left:5px solid ${getGroupColor(cat?.type)}; flex-direction:column; align-items:flex-start;">
                             <div style="display:flex; width:100%; justify-content:space-between; align-items:center;">
-                                <div style="flex:1;"><b>${r.category}</b> (${r.t})<br>${Number(r.amount).toLocaleString()}円</div>
-                                <div>
-                                    <button onclick="closeModal(); editRecord(${r.id},'${r.t==='固定'?'fixed':'normal'}')" style="border:none;background:#eee;padding:5px 10px;border-radius:6px;margin-right:5px;font-size:0.7rem;">編集</button>
-                                    <button onclick="closeModal(); deleteRecord(${r.id},'${r.t==='固定'?'fixed':'normal'}')" style="border:none;background:#fab1a0;color:white;padding:5px 10px;border-radius:6px;font-size:0.7rem;">消す</button>
+                                <div style="flex:1;">
+                                    <b>${r.category}</b> <span style="font-size:0.7rem; color:#888;">(${r.t})</span><br>
+                                    <span style="font-weight:bold;">${Number(r.amount).toLocaleString()}円</span>
+                                    ${r.comment ? `<div style="font-size:0.7rem; color:#666; margin-top:2px;">メモ: ${r.comment}</div>` : ''}
+                                </div>
+                                <div style="display:flex;">
+                                    <button onclick="openUniversalEditModal(${r.id}, '${r.typeKey}')" style="border:none;background:#eee;padding:5px 10px;border-radius:6px;margin-right:5px;font-size:0.7rem;">編集</button>
+                                    <button onclick="deleteRecord(${r.id}, '${r.typeKey}')" style="border:none;background:#fab1a0;color:white;padding:5px 10px;border-radius:6px;font-size:0.7rem;">消す</button>
                                 </div>
                             </div>
-                            ${r.comment ? `<div style="font-size:0.7rem;color:#666;margin-top:2px;">${r.comment}</div>` : ''}
                         </div>`;
                 });
             }
             document.getElementById('detail-modal').classList.remove('hidden');
+        }
+
+        /**
+         * 8. グラフ描画（0中心軸）
+         */
+        function drawChart(income, sums, totalExp) {
+            const ctx = document.getElementById('myChart').getContext('2d'); if (myChart) myChart.destroy();
+            const labels = data.categories.map(c => c.name); const chartData = data.categories.map(c => sums[c.name]); const chartColors = data.categories.map(c => getGroupColor(c.type));
+            if (income > totalExp) { labels.push('残金'); chartData.push(income - totalExp); chartColors.push('#ffffff'); }
+            myChart = new Chart(ctx, { type: 'pie', data: { labels, datasets: [{ data: chartData, backgroundColor: chartColors, borderWidth: 1, borderColor: '#eee' }] }, options: { plugins: { legend: { display: false } }, animation: { duration: 500 } } });
+        }
+
+        function updateAnnualSummary() {
+            const year = currentViewingMonth.getFullYear(); document.getElementById('annual-title').innerText = `${year}年の推移`;
+            const labels = ["1月","2月","3月","4月","5月","6月","7月","8月","9月","10月","11月","12月"];
+            const monthlyValues = labels.map((_, i) => {
+                const mStr = `${year}-${(i+1).toString().padStart(2,'0')}`, mInc = data.incomes[mStr] || 0;
+                let mTotalExp = 0, mInv = 0;
+                [...data.fixedCosts, ...data.records.filter(r => r.date.startsWith(mStr))].forEach(r => {
+                    const c = data.categories.find(cat => cat.name === r.category); if (c) { mTotalExp += Number(r.amount); if (c.type === 'investment') mInv += Number(r.amount); }
+                });
+                return mInc > 0 ? (mInc - mTotalExp) + mInv : null;
+            });
+            const validValues = monthlyValues.filter(v => v !== null);
+            const maxAbs = validValues.length > 0 ? Math.max(...validValues.map(Math.abs)) : 100000;
+            const limit = Math.ceil(maxAbs / 10000) * 10000 * 1.2 || 100000;
+            const ctx = document.getElementById('annualChart').getContext('2d'); if (annualChart) annualChart.destroy();
+            annualChart = new Chart(ctx, { type: 'line', data: { labels, datasets: [{ data: monthlyValues, borderColor: '#555', backgroundColor: 'rgba(0,0,0,0.05)', fill: true, tension: 0.3, spanGaps: true }] }, options: { maintainAspectRatio: false, scales: { y: { min: -limit, max: limit, ticks: { callback: (v) => v.toLocaleString() + '円' }, grid: { color: (ctx) => ctx.tick.value === 0 ? '#000' : '#eee', lineWidth: (ctx) => ctx.tick.value === 0 ? 2 : 1 } } }, plugins: { legend: { display: false } } } });
+        }
+
+        /**
+         * 9. システム基本関数
+         */
+        function saveToLocal() { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }
+        function getMonthStr() { return `${currentViewingMonth.getFullYear()}-${(currentViewingMonth.getMonth()+1).toString().padStart(2, '0')}`; }
+        function saveIncome() { data.incomes[getMonthStr()] = parseInt(document.getElementById('income-input').value)||0; saveToLocal(); updateSummary(); }
+        function changeMonth(d) { currentViewingMonth.setMonth(currentViewingMonth.getMonth()+d); refreshUI(); }
+        function applyTheme(color) { document.documentElement.style.setProperty('--bg-color', color); document.documentElement.style.setProperty('--main-color', color); data.themeColor = color; saveToLocal(); }
+        function closeModal() { document.getElementById('detail-modal').classList.add('hidden'); }
+        
+        function switchTab(t) { 
+            document.querySelectorAll('.container').forEach(c => c.classList.add('hidden')); 
+            document.getElementById('tab-'+t).classList.remove('hidden'); 
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.id === 'btn-'+t || b.getAttribute('onclick')?.includes(t))); 
+            if(t === 'annual') setTimeout(updateAnnualSummary, 10);
+            refreshUI();
         }
 
         function initThemeSelector() {
@@ -804,6 +808,44 @@
             });
         }
 
+        function renderCategoryManager() {
+            const list = document.getElementById('cat-manage-list'); list.innerHTML = "";
+            data.categories.forEach((cat, index) => {
+                const item = document.createElement('div'); 
+                item.className = 'cat-manage-item'; item.style.borderLeft = `5px solid ${getGroupColor(cat.type)}`;
+                item.setAttribute('data-index', index);
+                item.innerHTML = `<div class="drag-handle">☰</div><b style="flex:1;">${cat.name}</b><div style="display:flex; gap:5px;"><button onclick="startEditCat(${index})" style="border:none;background:#eee;padding:5px 10px;border-radius:6px;font-size:0.7rem;">編集</button><button onclick="deleteCategory(${index})" style="border:none;background:#fab1a0;color:white;padding:5px 10px;border-radius:6px;font-size:0.7rem;">消す</button></div>`;
+                list.appendChild(item);
+            });
+        }
+
+        function initCategoryButtons() {
+            const grid = document.getElementById('category-grid'); grid.innerHTML = "";
+            data.categories.forEach(cat => {
+                const btn = document.createElement('button');
+                btn.className = `cat-btn ${selectedCategory === cat.name ? 'active' : ''}`;
+                btn.innerText = cat.name; btn.style.borderBottomColor = getGroupColor(cat.type);
+                btn.onclick = () => { selectedCategory = cat.name; initCategoryButtons(); };
+                grid.appendChild(btn);
+            });
+        }
+
+        function deleteRecord(id, type) {
+            if(confirm('消去しますか？')) {
+                if(type === 'fixed') data.fixedCosts = data.fixedCosts.filter(r => r.id !== id);
+                else data.records = data.records.filter(r => r.id !== id);
+                saveToLocal(); refreshUI();
+                if(!document.getElementById('detail-modal').classList.contains('hidden')) closeModal();
+            }
+        }
+
+        function renderBudgetSettings() {
+            const a = document.getElementById('budget-settings-area'); a.innerHTML = "";
+            data.categories.forEach(c => {
+                a.innerHTML += `<div style="display:flex;justify-content:space-between;align-items:center;font-size:0.75rem;margin-bottom:5px;"><span>${c.name}</span><input type="number" style="width:100px;margin:0;padding:5px;" value="${data.budgets[c.name]||0}" onfocus="this.select()" onchange="data.budgets['${c.name}']=parseInt(this.value);saveToLocal();updateSummary();"></div>`;
+            });
+        }
+
         function addCategory() {
             const name = document.getElementById('new-cat-name').value;
             const type = document.getElementById('new-cat-type').value;
@@ -820,28 +862,9 @@
             saveToLocal(); resetCatForm(); refreshUI();
         }
 
-        function startEditCat(index) {
-            catEditIndex = index; const cat = data.categories[index];
-            document.getElementById('new-cat-name').value = cat.name;
-            document.getElementById('new-cat-type').value = cat.type;
-            document.getElementById('cat-editor-title').innerText = "✏️ 項目の編集";
-            document.getElementById('cat-add-btn').innerText = "更新";
-        }
-
-        function resetCatForm() {
-            catEditIndex = null;
-            document.getElementById('new-cat-name').value = "";
-            document.getElementById('cat-editor-title').innerText = "🏷️ 項目の追加";
-            document.getElementById('cat-add-btn').innerText = "+";
-        }
-
-        function deleteCategory(index) {
-            if(confirm('このカテゴリを削除しますか？紐付いている予算設定も消去されます。')) {
-                data.categories.splice(index, 1);
-                saveToLocal();
-                refreshUI();
-            }
-        }
+        function startEditCat(i) { catEditIndex = i; document.getElementById('new-cat-name').value = data.categories[i].name; document.getElementById('new-cat-type').value = data.categories[i].type; document.getElementById('cat-editor-title').innerText = "✏️ 編集"; }
+        function resetCatForm() { catEditIndex = null; document.getElementById('new-cat-name').value = ""; document.getElementById('cat-editor-title').innerText = "🏷️ 追加"; }
+        function deleteCategory(i) { if(confirm('消去？')) { data.categories.splice(i, 1); saveToLocal(); refreshUI(); } }
     </script>
 </body>
 </html>
