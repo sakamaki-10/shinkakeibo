@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+ <!DOCTYPE html>
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
@@ -163,9 +163,28 @@
         const typeLabels = { 'consumption': '消費', 'waste': '浪費', 'investment': '投資' };
         const themes = ["#CFE2F3", "#FAD2CF", "#D4F0F0", "#EAD1DC", "#FCE5CD", "#FFF2CC", "#D9EAD3", "#E2F0D9", "#F4CCCC", "#D9D9D9", "#EFEFEF", "#D0E1F9"];
         
-        const STORAGE_KEY = 'kakeibo_v31';
+        const STORAGE_KEY = 'kakeibo_v40';
+        
+        // 初回起動時の9項目
+        const defaultCategories = [
+            { id: 1, name: "食費", type: "consumption" },
+            { id: 2, name: "光熱費", type: "consumption" },
+            { id: 3, name: "家賃", type: "consumption" },
+            { id: 4, name: "医療費", type: "consumption" },
+            { id: 5, name: "友達遊び", type: "waste" },
+            { id: 6, name: "趣味", type: "waste" },
+            { id: 7, name: "小説", type: "waste" },
+            { id: 8, name: "投資", type: "investment" },
+            { id: 9, name: "学び代", type: "investment" }
+        ];
+
         let data = JSON.parse(localStorage.getItem(STORAGE_KEY)) || { 
-            records: [], incomes: {}, fixedCosts: [], categories: [], budgets: {}, themeColor: "#CFE2F3"
+            records: [], 
+            incomes: {}, 
+            fixedCosts: [], 
+            categories: defaultCategories, 
+            budgets: {}, 
+            themeColor: "#CFE2F3"
         };
 
         let currentViewingMonth = new Date(), selectedCategory = "", editId = null, catEditIndex = null, myChart = null, annualChart = null;
@@ -196,18 +215,16 @@
             document.getElementById('save-btn').innerText="保存する"; 
             document.getElementById('amount-input').value=""; 
             document.getElementById('comment-input').value="";
-            document.getElementById('fixed-check').checked = false; // 🆕 保存・更新後にチェックを外す
+            document.getElementById('fixed-check').checked = false;
         }
 
         function renderBudgetSettings() {
             const a = document.getElementById('budget-settings-area'); a.innerHTML = "";
             data.categories.forEach(c => {
-                // 🆕 予算入力欄に onfocus="this.select()" を追加して上書きしやすく
                 a.innerHTML += `<div style="display:flex;justify-content:space-between;align-items:center;font-size:0.75rem;margin-bottom:5px;"><span>${c.name}</span><input type="number" style="width:100px;margin:0;padding:5px;" value="${data.budgets[c.name]||0}" onfocus="this.select()" onchange="data.budgets['${c.name}']=parseInt(this.value);saveToLocal();updateSummary();"></div>`;
             });
         }
 
-        // --- 以下、既存の全機能を維持 ---
         function updateSummary() {
             const monthStr = getMonthStr();
             document.getElementById('display-month-label').innerText = monthStr.replace('-', '年') + '月';
@@ -282,15 +299,16 @@
             document.documentElement.style.setProperty('--bg-color', color);
             document.documentElement.style.setProperty('--main-color', color);
             data.themeColor = color; saveToLocal();
-            document.querySelectorAll('.theme-dot').forEach(dot => dot.classList.toggle('active', dot.getAttribute('data-color') === color));
         }
+
         function initThemeSelector() {
             const container = document.getElementById('theme-selector'); container.innerHTML = "";
             themes.forEach(color => {
                 const dot = document.createElement('div'); dot.className = 'theme-dot'; dot.style.backgroundColor = color;
-                dot.setAttribute('data-color', color); dot.onclick = () => { applyTheme(color); refreshUI(); }; container.appendChild(dot);
+                dot.onclick = () => { applyTheme(color); refreshUI(); }; container.appendChild(dot);
             });
         }
+
         function renderCalendar(date) {
             const view = document.getElementById('calendar-view'); view.innerHTML = "";
             const year = date.getFullYear(); const month = date.getMonth();
@@ -309,6 +327,7 @@
             }
             view.appendChild(grid);
         }
+
         function renderCategoryManager() {
             const list = document.getElementById('cat-manage-list'); list.innerHTML = "";
             data.categories.forEach((cat, index) => {
@@ -318,6 +337,7 @@
                 list.appendChild(item);
             });
         }
+
         function updateAnnualSummary() {
             const year = currentViewingMonth.getFullYear(); 
             document.getElementById('annual-title').innerText = `${year}年の推移`;
@@ -341,6 +361,7 @@
                 options: { maintainAspectRatio: false, scales: { y: { min: -limit, max: limit, ticks: { callback: v => v.toLocaleString() + '円' } } }, plugins: { legend: { display: false } } }
             });
         }
+
         function refreshUI() { initCategoryButtons(); renderCategoryManager(); renderBudgetSettings(); updateSummary(); }
         function deleteRecord(id, type) { if(confirm('消去しますか？')) { if(type==='fixed') data.fixedCosts = data.fixedCosts.filter(r=>r.id!==id); else data.records = data.records.filter(r=>r.id!==id); saveToLocal(); updateSummary(); } }
         function saveIncome() { data.incomes[getMonthStr()] = parseInt(document.getElementById('income-input').value)||0; saveToLocal(); updateSummary(); }
@@ -354,12 +375,14 @@
             updateSummary();
         }
         function changeMonth(d) { currentViewingMonth.setMonth(currentViewingMonth.getMonth()+d); updateSummary(); if(!document.getElementById('tab-annual').classList.contains('hidden')) updateAnnualSummary(); }
+        
         function drawChart(income, sums, totalExp) {
             const ctx = document.getElementById('myChart').getContext('2d'); if (myChart) myChart.destroy();
             const labels = data.categories.map(c => c.name); const chartData = data.categories.map(c => sums[c.name]); const chartColors = data.categories.map(c => getGroupColor(c.type));
             if (income > totalExp) { labels.push('残金'); chartData.push(income - totalExp); chartColors.push('#fff'); }
             myChart = new Chart(ctx, { type: 'pie', data: { labels, datasets: [{ data: chartData, backgroundColor: chartColors, borderWidth: 0 }] }, options: { plugins: { legend: { display: false } } } });
         }
+
         function initCategoryButtons() {
             const grid = document.getElementById('category-grid'); grid.innerHTML = "";
             data.categories.forEach(cat => {
@@ -370,6 +393,7 @@
                 grid.appendChild(btn);
             });
         }
+
         function addCategory() {
             const name = document.getElementById('new-cat-name').value;
             const type = document.getElementById('new-cat-type').value;
@@ -383,13 +407,16 @@
             } else { data.categories.push({ id: Date.now(), name, type }); }
             saveToLocal(); resetCatForm(); refreshUI();
         }
+
         function startEditCat(index) {
             catEditIndex = index; const cat = data.categories[index];
             document.getElementById('new-cat-name').value = cat.name; document.getElementById('new-cat-type').value = cat.type;
             document.getElementById('cat-editor-title').innerText = "✏️ 項目の編集"; document.getElementById('cat-add-btn').innerText = "更新";
         }
+
         function resetCatForm() { catEditIndex = null; document.getElementById('new-cat-name').value = ""; document.getElementById('cat-editor-title').innerText = "🏷️ 項目の追加"; document.getElementById('cat-add-btn').innerText = "+"; }
         function deleteCategory(index) { if(confirm('削除しますか？')) { data.categories.splice(index, 1); saveToLocal(); refreshUI(); } }
+
         function initSortable() {
             Sortable.create(document.getElementById('cat-manage-list'), {
                 animation: 150, delay: 500, delayOnTouchOnly: true,
