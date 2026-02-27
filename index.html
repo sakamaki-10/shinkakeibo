@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <title>家計簿アプリ v41.6</title>
+    <title>家計簿アプリ v41.7</title>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
@@ -62,7 +62,6 @@
             font-weight: bold;
         }
         
-        /* 収支の状態に応じた背景色 */
         .summary-blue { background-color: #e3f2fd !important; }
         .summary-green { background-color: #e8f5e9 !important; }
         .summary-red { background-color: #ffebee !important; }
@@ -178,7 +177,6 @@
         .calendar-day.today { background: #fff9db; }
         .calendar-day.other-month { background: #f9f9f9; color: #ccc; }
 
-        /* リスト項目の共通デザイン (項目管理・固定費一覧) */
         .cat-manage-item { 
             display: flex; 
             flex-direction: row; 
@@ -392,11 +390,8 @@
          */
         const typeLabels = { 'consumption': '消費', 'waste': '浪費', 'investment': '投資' };
         const themes = ["#CFE2F3", "#FAD2CF", "#D4F0F0", "#EAD1DC", "#FCE5CD", "#FFF2CC", "#D9EAD3", "#E2F0D9", "#F4CCCC", "#D9D9D9", "#EFEFEF", "#D0E1F9"];
-        
-        // 過去データ参照キー
         const STORAGE_KEY = 'kakeibo_v31';
         
-        // 初期9項目
         const defaultCategories = [
             { id: 1, name: "食費", type: "consumption" },
             { id: 2, name: "光熱費", type: "consumption" },
@@ -418,10 +413,10 @@
         let editId = null;
         let myChart = null;
         let annualChart = null;
-        
-        // 編集ポップアップ用
+        let catEditIndex = null; // 【修正】宣言を追加
+
         let targetEditId = null;
-        let targetEditType = ""; // "normal" or "fixed"
+        let targetEditType = ""; 
 
         const getGroupColor = (type) => {
             if (type === 'consumption') return '#ffeaa7';
@@ -431,22 +426,40 @@
         };
 
         /**
-         * 2. アプリの起動処理
+         * 🆕 今日の日付を入力欄にセットする関数
          */
-        window.onload = () => {
+        function updateDateToToday() {
             const today = new Date();
             const y = today.getFullYear();
             const m = String(today.getMonth() + 1).padStart(2, '0');
             const d = String(today.getDate()).padStart(2, '0');
-            document.getElementById('date-input').value = `${y}-${m}-${d}`;
+            const dateStr = `${y}-${m}-${d}`;
             
-            currentViewingMonth = new Date(y, today.getMonth(), 1);
+            const dateInput = document.getElementById('date-input');
+            if (dateInput) {
+                dateInput.value = dateStr;
+            }
+            return today;
+        }
+
+        /**
+         * 2. アプリの起動処理
+         */
+        window.onload = () => {
+            const today = updateDateToToday();
+            currentViewingMonth = new Date(today.getFullYear(), today.getMonth(), 1);
             
             applyTheme(data.themeColor || "#CFE2F3");
             initThemeSelector();
             initSortable();
             refreshUI();
         };
+
+        // 【修正】スマホでアプリを再度開いた際（タブ復帰時）にも日付を更新
+        window.addEventListener('pageshow', () => {
+            updateDateToToday();
+            refreshUI();
+        });
 
         /**
          * 3. データの新規保存
@@ -459,12 +472,6 @@
             if (!selectedCategory || isNaN(amount)) { 
                 alert("カテゴリを選択し、金額を入力してください。"); 
                 return; 
-            }
-            
-            // 通常の入力エリアでの「編集」モードの場合
-            if (editId) {
-                data.records = data.records.filter(r => r.id !== editId);
-                data.fixedCosts = data.fixedCosts.filter(r => r.id !== editId);
             }
             
             const newEntry = { 
@@ -506,16 +513,17 @@
 
         function updateSummary() {
             const monthStr = getMonthStr();
-            document.getElementById('display-month-label').innerText = monthStr.replace('-', '年') + '月';
+            const displayLabel = document.getElementById('display-month-label');
+            if(displayLabel) displayLabel.innerText = monthStr.replace('-', '年') + '月';
             
             const income = data.incomes[monthStr] || 0;
-            document.getElementById('income-input').value = income || "";
+            const incomeInput = document.getElementById('income-input');
+            if(incomeInput) incomeInput.value = income || "";
             
             let sums = {}; 
             data.categories.forEach(c => sums[c.name] = 0);
             
             let totalExp = 0;
-            // 固定費マスターはすべての月に反映
             const monthRecords = [...data.fixedCosts, ...data.records.filter(r => r.date.startsWith(monthStr))];
             
             monthRecords.forEach(r => { 
@@ -526,43 +534,47 @@
                 } 
             });
 
-            // 予算進捗
             const progressArea = document.getElementById('budget-progress-area'); 
-            progressArea.innerHTML = "";
-            data.categories.forEach(cat => {
-                const budget = data.budgets[cat.name] || 0;
-                if (budget > 0) {
-                    const spent = sums[cat.name] || 0; 
-                    const percent = Math.min((spent / budget) * 100, 100);
-                    const barColor = (spent > budget) ? 'var(--error-color)' : getGroupColor(cat.type);
-                    progressArea.innerHTML += `
-                        <div style="display:flex;justify-content:space-between;font-size:0.65rem;">
-                            <span>${cat.name}</span>
-                            <span>${spent.toLocaleString()}/${budget.toLocaleString()}</span>
-                        </div>
-                        <div style="background:rgba(0,0,0,0.05);border-radius:5px;height:5px;margin-bottom:6px;overflow:hidden;">
-                            <div style="height:100%;width:${percent}%;background:${barColor};transition:width 0.3s;"></div>
-                        </div>`;
-                }
-            });
+            if(progressArea) {
+                progressArea.innerHTML = "";
+                data.categories.forEach(cat => {
+                    const budget = data.budgets[cat.name] || 0;
+                    if (budget > 0) {
+                        const spent = sums[cat.name] || 0; 
+                        const percent = Math.min((spent / budget) * 100, 100);
+                        const barColor = (spent > budget) ? 'var(--error-color)' : getGroupColor(cat.type);
+                        progressArea.innerHTML += `
+                            <div style="display:flex;justify-content:space-between;font-size:0.65rem;">
+                                <span>${cat.name}</span>
+                                <span>${spent.toLocaleString()}/${budget.toLocaleString()}</span>
+                            </div>
+                            <div style="background:rgba(0,0,0,0.05);border-radius:5px;height:5px;margin-bottom:6px;overflow:hidden;">
+                                <div style="height:100%;width:${percent}%;background:${barColor};transition:width 0.3s;"></div>
+                            </div>`;
+                    }
+                });
+            }
 
-            // 今日の支出合算
             const realToday = new Date().toLocaleDateString('sv-SE');
             const todayTotal = [...data.records, ...data.fixedCosts]
                 .filter(r => r.date === realToday)
                 .reduce((s, r) => s + Number(r.amount), 0);
-            document.getElementById('today-expense-text').innerText = `今日の支出: ${todayTotal.toLocaleString()} 円`;
+            const todayText = document.getElementById('today-expense-text');
+            if(todayText) todayText.innerText = `今日の支出: ${todayTotal.toLocaleString()} 円`;
             
             const balance = income - totalExp;
-            document.getElementById('status-text').innerHTML = `支出:${totalExp.toLocaleString()} / 収支差:${balance.toLocaleString()}`;
+            const statusText = document.getElementById('status-text');
+            if(statusText) statusText.innerHTML = `支出:${totalExp.toLocaleString()} / 収支差:${balance.toLocaleString()}`;
             
             const card = document.getElementById('summary-card');
-            if (income > 0) {
-                if (balance > 0) card.className = 'card summary-blue';
-                else if (balance === 0) card.className = 'card summary-green';
-                else card.className = 'card summary-red';
-            } else {
-                card.className = 'card';
+            if (card) {
+                if (income > 0) {
+                    if (balance > 0) card.className = 'card summary-blue';
+                    else if (balance === 0) card.className = 'card summary-green';
+                    else card.className = 'card summary-red';
+                } else {
+                    card.className = 'card';
+                }
             }
             
             drawChart(income, sums, totalExp);
@@ -576,8 +588,9 @@
         function renderFixedCostsList() {
             const area = document.getElementById('fixed-costs-list');
             const summary = document.getElementById('fixed-costs-summary');
+            if(!area || !summary) return;
+
             const total = data.fixedCosts.reduce((sum, r) => sum + Number(r.amount), 0);
-            
             summary.innerText = `固定費合計: ${total.toLocaleString()} 円 / 月`;
             area.innerHTML = "";
 
@@ -606,7 +619,7 @@
         }
 
         /**
-         * 6. 🆕 万能編集ポップアップ (カレンダーからも固定費からもこれを使う)
+         * 6. 万能編集ポップアップ
          */
         function openUniversalEditModal(id, type) {
             targetEditId = id;
@@ -647,13 +660,11 @@
 
             if (isNaN(amount)) return;
 
-            // 以前の場所から削除
             data.records = data.records.filter(r => r.id !== targetEditId);
             data.fixedCosts = data.fixedCosts.filter(r => r.id !== targetEditId);
 
-            // 新しい設定で作成
             const updatedEntry = { 
-                id: targetEditId, // IDは維持
+                id: targetEditId,
                 date: date, 
                 category: category, 
                 amount: amount, 
@@ -668,15 +679,16 @@
 
             saveToLocal();
             closeUniversalModal();
-            closeModal(); // カレンダー詳細モーダルも閉じる
+            closeModal();
             refreshUI();
         }
 
         /**
-         * 7. カレンダーと詳細表示
+         * 7. カレンダー
          */
         function renderCalendar(date) {
-            const view = document.getElementById('calendar-view'); view.innerHTML = "";
+            const view = document.getElementById('calendar-view'); if(!view) return;
+            view.innerHTML = "";
             const year = date.getFullYear(); const month = date.getMonth();
             const firstDay = new Date(year, month, 1); const lastDay = new Date(year, month + 1, 0);
             
@@ -742,17 +754,22 @@
         }
 
         /**
-         * 8. グラフ描画（0中心軸）
+         * 8. グラフ描画
          */
         function drawChart(income, sums, totalExp) {
-            const ctx = document.getElementById('myChart').getContext('2d'); if (myChart) myChart.destroy();
+            const canvas = document.getElementById('myChart');
+            if(!canvas) return;
+            const ctx = canvas.getContext('2d'); if (myChart) myChart.destroy();
             const labels = data.categories.map(c => c.name); const chartData = data.categories.map(c => sums[c.name]); const chartColors = data.categories.map(c => getGroupColor(c.type));
             if (income > totalExp) { labels.push('残金'); chartData.push(income - totalExp); chartColors.push('#ffffff'); }
             myChart = new Chart(ctx, { type: 'pie', data: { labels, datasets: [{ data: chartData, backgroundColor: chartColors, borderWidth: 1, borderColor: '#eee' }] }, options: { plugins: { legend: { display: false } }, animation: { duration: 500 } } });
         }
 
         function updateAnnualSummary() {
-            const year = currentViewingMonth.getFullYear(); document.getElementById('annual-title').innerText = `${year}年の推移`;
+            const year = currentViewingMonth.getFullYear(); 
+            const title = document.getElementById('annual-title');
+            if(title) title.innerText = `${year}年の推移`;
+            
             const labels = ["1月","2月","3月","4月","5月","6月","7月","8月","9月","10月","11月","12月"];
             const monthlyValues = labels.map((_, i) => {
                 const mStr = `${year}-${(i+1).toString().padStart(2,'0')}`, mInc = data.incomes[mStr] || 0;
@@ -762,10 +779,14 @@
                 });
                 return mInc > 0 ? (mInc - mTotalExp) + mInv : null;
             });
+            
             const validValues = monthlyValues.filter(v => v !== null);
             const maxAbs = validValues.length > 0 ? Math.max(...validValues.map(Math.abs)) : 100000;
             const limit = Math.ceil(maxAbs / 10000) * 10000 * 1.2 || 100000;
-            const ctx = document.getElementById('annualChart').getContext('2d'); if (annualChart) annualChart.destroy();
+            
+            const annualCanvas = document.getElementById('annualChart');
+            if(!annualCanvas) return;
+            const ctx = annualCanvas.getContext('2d'); if (annualChart) annualChart.destroy();
             annualChart = new Chart(ctx, { type: 'line', data: { labels, datasets: [{ data: monthlyValues, borderColor: '#555', backgroundColor: 'rgba(0,0,0,0.05)', fill: true, tension: 0.3, spanGaps: true }] }, options: { maintainAspectRatio: false, scales: { y: { min: -limit, max: limit, ticks: { callback: (v) => v.toLocaleString() + '円' }, grid: { color: (ctx) => ctx.tick.value === 0 ? '#000' : '#eee', lineWidth: (ctx) => ctx.tick.value === 0 ? 2 : 1 } } }, plugins: { legend: { display: false } } } });
         }
 
@@ -788,7 +809,9 @@
         }
 
         function initThemeSelector() {
-            const container = document.getElementById('theme-selector'); container.innerHTML = "";
+            const container = document.getElementById('theme-selector'); 
+            if(!container) return;
+            container.innerHTML = "";
             themes.forEach(color => {
                 const dot = document.createElement('div'); dot.className = 'theme-dot'; dot.style.backgroundColor = color;
                 dot.onclick = () => { applyTheme(color); refreshUI(); }; container.appendChild(dot);
@@ -796,11 +819,13 @@
         }
 
         function initSortable() {
-            Sortable.create(document.getElementById('cat-manage-list'), {
+            const el = document.getElementById('cat-manage-list');
+            if(!el) return;
+            Sortable.create(el, {
                 animation: 150, delay: 500, delayOnTouchOnly: true,
                 onEnd: function() {
                     const newOrder = [];
-                    document.getElementById('cat-manage-list').querySelectorAll('.cat-manage-item').forEach(item => {
+                    el.querySelectorAll('.cat-manage-item').forEach(item => {
                         newOrder.push(data.categories[parseInt(item.getAttribute('data-index'))]);
                     });
                     data.categories = newOrder; saveToLocal(); refreshUI();
@@ -809,7 +834,9 @@
         }
 
         function renderCategoryManager() {
-            const list = document.getElementById('cat-manage-list'); list.innerHTML = "";
+            const list = document.getElementById('cat-manage-list'); 
+            if(!list) return;
+            list.innerHTML = "";
             data.categories.forEach((cat, index) => {
                 const item = document.createElement('div'); 
                 item.className = 'cat-manage-item'; item.style.borderLeft = `5px solid ${getGroupColor(cat.type)}`;
@@ -820,7 +847,9 @@
         }
 
         function initCategoryButtons() {
-            const grid = document.getElementById('category-grid'); grid.innerHTML = "";
+            const grid = document.getElementById('category-grid'); 
+            if(!grid) return;
+            grid.innerHTML = "";
             data.categories.forEach(cat => {
                 const btn = document.createElement('button');
                 btn.className = `cat-btn ${selectedCategory === cat.name ? 'active' : ''}`;
@@ -840,7 +869,9 @@
         }
 
         function renderBudgetSettings() {
-            const a = document.getElementById('budget-settings-area'); a.innerHTML = "";
+            const a = document.getElementById('budget-settings-area'); 
+            if(!a) return;
+            a.innerHTML = "";
             data.categories.forEach(c => {
                 a.innerHTML += `<div style="display:flex;justify-content:space-between;align-items:center;font-size:0.75rem;margin-bottom:5px;"><span>${c.name}</span><input type="number" style="width:100px;margin:0;padding:5px;" value="${data.budgets[c.name]||0}" onfocus="this.select()" onchange="data.budgets['${c.name}']=parseInt(this.value);saveToLocal();updateSummary();"></div>`;
             });
